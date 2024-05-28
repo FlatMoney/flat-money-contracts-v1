@@ -1,7 +1,7 @@
 {
   "name": "flat-money-contracts-v1",
   "version": "1.0.0",
-  "description": "Flat Money contracts V1",
+  "description": "Contains smart contracts for Flat Money protocol",
   "scripts": {
     "lint:sol": "solhint 'src/**/*.sol' --max-warnings 0",
     "lint:sol:fix": "pnpm lint:sol -- --fix",
@@ -9,12 +9,10 @@
     "test:unit": "forge t --no-match-test '(test_fuzz:?)'",
     "test:fuzz": "forge t --match-test '(test_fuzz:?)'",
     "abigen": "hardhat export-abi",
-    "run:oz": "script/shell/update-encoders-index.sh && forge clean && FOUNDRY_PROFILE=openzeppelin forge script",
     "prettier:check": "prettier --check --plugin=prettier-plugin-solidity '{src,test,script}/**/*.sol'",
     "prepare": "husky",
     "preinstall": "npx only-allow pnpm"
   },
-  "author": "dHEDGE",
   "homepage": "https://flat.money/",
   "devDependencies": {
     "@nomicfoundation/hardhat-foundry": "^1.1.1",

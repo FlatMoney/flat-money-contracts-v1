@@ -46,4 +46,3 @@ contract = "0x509b85EEF0df77992b29aeDdD22C7119Db87ce16"
 
 [ETHCrossAggregator]
 contract = "0xbe1551fB22F8b877EDF3731CEc6FF703E720Fb85"
-
