@@ -1,0 +1,6 @@
+@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/
+@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+forge-std/=lib/forge-std/src/
+openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/
+pyth-sdk-solidity/=lib/pyth-sdk-solidity/
+solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/

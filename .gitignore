@@ -1,0 +1,23 @@
+# Compiler files
+cache/
+out/
+
+# Dotenv file
+.env
+
+# Node Modules
+node_modules
+
+# VSCode file
+.vscode
+
+# Hardhat files
+cache_hardhat
+typechain-types
+artifacts
+
+# Foundry deployment files
+dry-run
+
+# MacOS specific file
+.DS_Store
