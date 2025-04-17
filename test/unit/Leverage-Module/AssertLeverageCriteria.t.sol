@@ -1,18 +1,15 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
-import {Setup} from "../../helpers/Setup.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
-import {ILeverageModule} from "../../../src/interfaces/ILeverageModule.sol";
-import {FlatcoinStructs} from "../../../src/libraries/FlatcoinStructs.sol";
-import {FlatcoinErrors} from "src/libraries/FlatcoinErrors.sol";
+
+import "../../helpers/OrderHelpers.sol";
 import "../../../src/interfaces/IChainlinkAggregatorV3.sol";
 
-contract AssertLeverageCriteriaTest is Setup, OrderHelpers, ExpectRevert {
+contract AssertLeverageCriteriaTest is OrderHelpers, ExpectRevert {
     function test_revert_leverage_assert_criteria() public {
         vm.startPrank(admin);
-        leverageModProxy.setLeverageCriteria({_marginMin: 0.01e18, _leverageMin: 1.3e18, _leverageMax: 50e18});
+        leverageModProxy.setLeverageCriteria({marginMin_: 0.01e18, leverageMin_: 1.3e18, leverageMax_: 50e18});
 
         vm.startPrank(alice);
 
@@ -41,7 +38,7 @@ contract AssertLeverageCriteriaTest is Setup, OrderHelpers, ExpectRevert {
                 0
             ),
             expectedErrorSignature: "MarginTooSmall(uint256,uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.MarginTooSmall.selector, 0.01e18, 0.01e18 - 1)
+            errorData: abi.encodeWithSelector(LeverageModule.MarginTooSmall.selector, 0.01e18, 0.01e18 - 1)
         });
 
         _expectRevertWithCustomError({
@@ -54,7 +51,7 @@ contract AssertLeverageCriteriaTest is Setup, OrderHelpers, ExpectRevert {
                 0
             ),
             expectedErrorSignature: "LeverageTooLow(uint256,uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.LeverageTooLow.selector, 1.3e18, 1.3e18 - 1)
+            errorData: abi.encodeWithSelector(LeverageModule.LeverageTooLow.selector, 1.3e18, 1.3e18 - 1)
         });
 
         _expectRevertWithCustomError({
@@ -67,13 +64,13 @@ contract AssertLeverageCriteriaTest is Setup, OrderHelpers, ExpectRevert {
                 0
             ),
             expectedErrorSignature: "LeverageTooHigh(uint256,uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.LeverageTooHigh.selector, 50e18, 50e18 + 1)
+            errorData: abi.encodeWithSelector(LeverageModule.LeverageTooHigh.selector, 50e18, 50e18 + 1)
         });
     }
 
     function test_leverage_assert_criteria_succeed() public {
         vm.startPrank(admin);
-        leverageModProxy.setLeverageCriteria({_marginMin: 0.01e18, _leverageMin: 1.3e18, _leverageMax: 50e18});
+        leverageModProxy.setLeverageCriteria({marginMin_: 0.01e18, leverageMin_: 1.3e18, leverageMax_: 50e18});
 
         vm.startPrank(alice);
 

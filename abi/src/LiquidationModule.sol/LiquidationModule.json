@@ -87,6 +87,28 @@
   {
     "inputs": [
       {
+        "internalType": "int256",
+        "name": "value",
+        "type": "int256"
+      }
+    ],
+    "name": "SafeCastOverflowedIntToUint",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "SafeCastOverflowedUintToInt",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "string",
         "name": "variableName",
         "type": "string"
@@ -234,7 +256,7 @@
           }
         ],
         "indexed": false,
-        "internalType": "struct FlatcoinStructs.PositionSummary",
+        "internalType": "struct PositionSummary",
         "name": "positionSummary",
         "type": "tuple"
       }
@@ -259,7 +281,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "tokenId",
+        "name": "tokenId_",
         "type": "uint256"
       }
     ],
@@ -267,7 +289,7 @@
     "outputs": [
       {
         "internalType": "bool",
-        "name": "liquidatable",
+        "name": "liquidatable_",
         "type": "bool"
       }
     ],
@@ -278,12 +300,12 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "tokenId",
+        "name": "tokenId_",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "price",
+        "name": "price_",
         "type": "uint256"
       }
     ],
@@ -291,7 +313,7 @@
     "outputs": [
       {
         "internalType": "bool",
-        "name": "liquidatable",
+        "name": "liquidatable_",
         "type": "bool"
       }
     ],
@@ -302,7 +324,12 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "tokenId",
+        "name": "positionSize_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "currentPrice_",
         "type": "uint256"
       }
     ],
@@ -310,7 +337,7 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "liquidationFee",
+        "name": "liqFee_",
         "type": "uint256"
       }
     ],
@@ -321,12 +348,31 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "additionalSize",
+        "name": "tokenId_",
+        "type": "uint256"
+      }
+    ],
+    "name": "getLiquidationFee",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "liquidationFee_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "positionSize_",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "price",
+        "name": "currentPrice_",
         "type": "uint256"
       }
     ],
@@ -334,7 +380,7 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "liquidationMargin",
+        "name": "lMargin_",
         "type": "uint256"
       }
     ],
@@ -345,7 +391,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "additionalSize",
+        "name": "additionalSize_",
         "type": "uint256"
       }
     ],
@@ -353,7 +399,7 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "liquidationMargin",
+        "name": "liquidationMargin_",
         "type": "uint256"
       }
     ],
@@ -364,27 +410,27 @@
     "inputs": [
       {
         "internalType": "contract IFlatcoinVault",
-        "name": "_vault",
+        "name": "vault_",
         "type": "address"
       },
       {
         "internalType": "uint128",
-        "name": "_liquidationFeeRatio",
+        "name": "liquidationFeeRatio_",
         "type": "uint128"
       },
       {
         "internalType": "uint128",
-        "name": "_liquidationBufferRatio",
+        "name": "liquidationBufferRatio_",
         "type": "uint128"
       },
       {
         "internalType": "uint256",
-        "name": "_liquidationFeeLowerBound",
+        "name": "liquidationFeeLowerBound_",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "_liquidationFeeUpperBound",
+        "name": "liquidationFeeUpperBound_",
         "type": "uint256"
       }
     ],
@@ -397,7 +443,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "tokenId",
+        "name": "tokenID_",
         "type": "uint256"
       }
     ],
@@ -409,13 +455,56 @@
   {
     "inputs": [
       {
+        "internalType": "uint256[]",
+        "name": "tokenID_",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "liquidate",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "liquidatedIds_",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "tokenID_",
+        "type": "uint256[]"
+      },
+      {
+        "internalType": "bytes[]",
+        "name": "priceUpdateData_",
+        "type": "bytes[]"
+      }
+    ],
+    "name": "liquidate",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "liquidatedIds_",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
-        "name": "tokenID",
+        "name": "tokenID_",
         "type": "uint256"
       },
       {
         "internalType": "bytes[]",
-        "name": "priceUpdateData",
+        "name": "priceUpdateData_",
         "type": "bytes[]"
       }
     ],
@@ -479,51 +568,8 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "tokenId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "price",
-        "type": "uint256"
-      }
-    ],
-    "name": "liquidationPrice",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "liqPrice",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "tokenId",
-        "type": "uint256"
-      }
-    ],
-    "name": "liquidationPrice",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "liqPrice",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "uint128",
-        "name": "_newLiquidationBufferRatio",
+        "name": "newLiquidationBufferRatio_",
         "type": "uint128"
       }
     ],
@@ -536,12 +582,12 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_newLiquidationFeeLowerBound",
+        "name": "newLiquidationFeeLowerBound_",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "_newLiquidationFeeUpperBound",
+        "name": "newLiquidationFeeUpperBound_",
         "type": "uint256"
       }
     ],
@@ -554,7 +600,7 @@
     "inputs": [
       {
         "internalType": "uint128",
-        "name": "_newLiquidationFeeRatio",
+        "name": "newLiquidationFeeRatio_",
         "type": "uint128"
       }
     ],
@@ -567,7 +613,7 @@
     "inputs": [
       {
         "internalType": "contract IFlatcoinVault",
-        "name": "_vault",
+        "name": "vault_",
         "type": "address"
       }
     ],

@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
-import {DelayedOrder} from "src/DelayedOrder.sol";
-import {Setup} from "../../helpers/Setup.sol";
+import "../../helpers/Setup.sol";
 import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
-import {FlatcoinErrors} from "../../../src/libraries/FlatcoinErrors.sol";
 
-contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
+contract ClosePositionTest is OrderHelpers, ExpectRevert {
     function test_close_position_no_price_change() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
 
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
@@ -81,7 +79,7 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
         );
         assertEq(
             aliceBalanceBefore - mockKeeperFee.getKeeperFee() * 5,
-            WETH.balanceOf(alice) + stableDeposit,
+            collateralAsset.balanceOf(alice) + stableDeposit,
             "Alice collateral balance incorrect"
         );
     }
@@ -89,17 +87,18 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
     function test_close_position_price_increase() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
 
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH collateral, 30 ETH additional size (4x leverage)
@@ -109,12 +108,14 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
-        // Mock WETH Chainlink price to $2000 (100% increase)
+        // Mock collateralAsset Chainlink price to $2000 (100% increase)
         uint256 newCollateralPrice = 2000e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
+
+        uint256 keeperFee2 = mockKeeperFee.getKeeperFee();
 
         // 70 ETH collateral, 70 ETH additional size (2x leverage)
         uint256 tokenId1 = announceAndExecuteLeverageOpen({
@@ -123,7 +124,7 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             margin: 70e18,
             additionalSize: 70e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         // Close first position
@@ -132,7 +133,7 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             traderAccount: alice,
             keeperAccount: keeper,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         // Close second position
@@ -141,10 +142,14 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             traderAccount: alice,
             keeperAccount: keeper,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
-        assertGt(aliceBalanceBefore, WETH.balanceOf(alice), "Alice's WETH balance should decrease"); // Alice still has the stable LP deposit to withdraw
+        assertGt(
+            aliceBalanceBefore,
+            collateralAsset.balanceOf(alice),
+            "Alice's collateralAsset balance should decrease"
+        ); // Alice still has the stable LP deposit to withdraw
 
         // Withdraw stable deposit
         // Have Bob deposit some amount first so that Alice's full withdrawal doesn't revert on minimum liquidity
@@ -153,7 +158,7 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         announceAndExecuteWithdraw({
@@ -161,13 +166,13 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             keeperAccount: keeper,
             withdrawAmount: stableModProxy.balanceOf(alice),
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         // TODO: Modify `deposit` and `withdraw` function to account for pnl settlement.
         assertEq(
-            aliceBalanceBefore - mockKeeperFee.getKeeperFee() * 6,
-            WETH.balanceOf(alice),
+            aliceBalanceBefore - (keeperFee * 2 + keeperFee2 * 4),
+            collateralAsset.balanceOf(alice),
             "Alice should have her stable deposit back"
         );
     }
@@ -175,17 +180,18 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
     function test_close_position_price_decrease() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
 
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
         // 20 ETH collateral, 20 ETH additional size (2x leverage)
         uint256 tokenId0 = announceAndExecuteLeverageOpen({
@@ -194,12 +200,14 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             margin: 20e18,
             additionalSize: 20e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
-        // Mock WETH Chainlink price to $900 (10% decrease)
+        // Mock collateralAsset Chainlink price to $900 (10% decrease)
         uint256 newCollateralPrice = 900e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
+
+        uint256 keeperFee2 = mockKeeperFee.getKeeperFee();
 
         // 10 ETH collateral, 50 ETH additional size (6x leverage)
         uint256 tokenId1 = announceAndExecuteLeverageOpen({
@@ -208,7 +216,7 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 50e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         // Close first position
@@ -217,7 +225,7 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             traderAccount: alice,
             keeperAccount: keeper,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         // Close second position
@@ -226,7 +234,7 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             traderAccount: alice,
             keeperAccount: keeper,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         // Withdraw stable deposit
@@ -236,7 +244,7 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         announceAndExecuteWithdraw({
@@ -244,16 +252,91 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             keeperAccount: keeper,
             withdrawAmount: stableModProxy.balanceOf(alice),
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
-        assertGt(aliceBalanceBefore, WETH.balanceOf(alice), "Alice's WETH balance should increase"); // Alice still has the stable LP deposit to withdraw
+        assertGt(
+            aliceBalanceBefore,
+            collateralAsset.balanceOf(alice),
+            "Alice's collateralAsset balance should increase"
+        ); // Alice still has the stable LP deposit to withdraw
         assertApproxEqAbs(
-            aliceBalanceBefore - mockKeeperFee.getKeeperFee() * 6,
-            WETH.balanceOf(alice),
+            aliceBalanceBefore - (keeperFee * 2 + keeperFee2 * 4),
+            collateralAsset.balanceOf(alice),
             1e6,
             "Alice should get her deposit back"
         ); // allow for some small rounding error
+    }
+
+    // The collateralNet in the FlatcoinVault is intended to be non-decreasing.
+    // However, computational errors can lead to violations of this invariant.
+    // The issue arises from the FlatcoinVault.sol::updateGlobalPositionData()#L186, where _globalPositions is deleted.
+    // This can lead to discrepancies in the collateralNet, especially.
+    // See audit issue 106 description for the v2-update contest on Sherlock.
+    function test_invariant_violation_when_closing_last_position() public {
+        uint256 collateralPrice = 1000e8;
+        uint256 stableDeposit = 10e18;
+
+        setCollateralPrice(collateralPrice);
+        vm.startPrank(admin);
+
+        controllerModProxy.setMaxFundingVelocity(0.03e18 - 1);
+
+        announceAndExecuteDeposit({
+            traderAccount: alice,
+            keeperAccount: keeper,
+            depositAmount: stableDeposit,
+            oraclePrice: collateralPrice,
+            keeperFeeAmount: 0
+        });
+
+        address[10] memory adrs;
+        uint256 n = 4;
+        uint256 size = 1e18 + 1;
+
+        adrs[1] = makeAddr("trader1");
+        adrs[2] = makeAddr("trader2");
+        adrs[3] = makeAddr("trader3");
+        adrs[4] = makeAddr("trader4");
+
+        for (uint256 i = 1; i <= n; i++) {
+            vm.startPrank(admin);
+            collateralAsset.transfer(adrs[i], 100e18);
+        }
+        for (uint256 i = 1; i <= n; i++) {
+            announceOpenLeverage(adrs[i], size, size, 0);
+        }
+        skip(10); // must reach minimum executability time
+
+        uint256[9] memory tokenIds;
+        for (uint256 i = 1; i <= n; i++) {
+            tokenIds[i] = executeOpenLeverage(keeper, adrs[i], collateralPrice);
+        }
+
+        collateralPrice += 1e8 + 1;
+        setCollateralPrice(collateralPrice);
+
+        for (uint256 i = 1; i <= n; i++) {
+            LeverageModuleStructs.Position memory position = vaultProxy.getPosition(tokenIds[i]);
+            uint256 marginAdjustment = position.marginDeposited / 9;
+            uint256 additionalSizeAdjustment = position.additionalSize / 9;
+            announceAdjustLeverage(adrs[i], tokenIds[i], int256(marginAdjustment), int(additionalSizeAdjustment), 0);
+        }
+
+        skip(10); // must reach minimum executability time
+
+        for (uint256 i = 1; i <= n; i++) {
+            executeAdjustLeverage(keeper, adrs[i], collateralPrice);
+        }
+
+        for (uint256 i = n; i >= 1; i--) {
+            announceCloseLeverage(adrs[i], tokenIds[i], 0);
+        }
+        skip(10); // must reach minimum executability time
+
+        for (uint256 i = n; i >= 1; i--) {
+            executeCloseLeverage(keeper, adrs[i], collateralPrice);
+        }
     }
 
     function test_revert_close_position_after_position_liquidated() public {
@@ -267,26 +350,28 @@ contract ClosePositionTest is Setup, OrderHelpers, ExpectRevert {
             keeperFeeAmount: 0
         });
 
-        uint256 liqPrice = liquidationModProxy.liquidationPrice(tokenId);
+        uint256 liqPrice = viewer.liquidationPrice(tokenId);
         uint256 newCollateralPrice = (liqPrice - 1e10) / 1e10;
 
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         announceCloseLeverage({traderAccount: alice, tokenId: tokenId, keeperFeeAmount: 0});
 
         vm.startPrank(liquidator);
-        liquidationModProxy.liquidate(tokenId);
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = tokenId;
+        liquidationModProxy.liquidate(tokenIds);
 
-        skip(uint256(vaultProxy.minExecutabilityAge()));
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge()));
 
         vm.startPrank(keeper);
         bytes[] memory priceUpdateData = getPriceUpdateData(newCollateralPrice);
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
-            callData: abi.encodeWithSelector(DelayedOrder.executeOrder.selector, alice, priceUpdateData),
-            expectedErrorSignature: "ERC721NonexistentToken(uint256)",
-            errorData: abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, tokenId),
+            target: address(orderExecutionModProxy),
+            callData: abi.encodeWithSelector(OrderExecutionModule.executeOrder.selector, alice, priceUpdateData),
+            expectedErrorSignature: "OrderInvalid(address)",
+            errorData: abi.encodeWithSelector(OrderExecutionModule.OrderInvalid.selector, alice),
             value: 1
         });
     }

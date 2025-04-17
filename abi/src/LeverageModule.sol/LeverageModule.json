@@ -145,17 +145,6 @@
     "type": "error"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "fee",
-        "type": "uint256"
-      }
-    ],
-    "name": "InvalidFee",
-    "type": "error"
-  },
-  {
     "inputs": [],
     "name": "InvalidInitialization",
     "type": "error"
@@ -259,6 +248,28 @@
       }
     ],
     "name": "OnlyOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum OrderType",
+        "name": "orderType",
+        "type": "uint8"
+      }
+    ],
+    "name": "OrderExists",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "moduleKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "Paused",
     "type": "error"
   },
   {
@@ -398,6 +409,24 @@
         "internalType": "uint256",
         "name": "adjustPrice",
         "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "int256",
+        "name": "marginDelta",
+        "type": "int256"
+      },
+      {
+        "indexed": false,
+        "internalType": "int256",
+        "name": "sizeDelta",
+        "type": "int256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "tradeFee",
+        "type": "uint256"
       }
     ],
     "name": "LeverageAdjust",
@@ -437,9 +466,27 @@
           }
         ],
         "indexed": false,
-        "internalType": "struct FlatcoinStructs.PositionSummary",
+        "internalType": "struct PositionSummary",
         "name": "positionSummary",
         "type": "tuple"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "settledMargin",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "size",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "tradeFee",
+        "type": "uint256"
       }
     ],
     "name": "LeverageClose",
@@ -465,28 +512,27 @@
         "internalType": "uint256",
         "name": "entryPrice",
         "type": "uint256"
-      }
-    ],
-    "name": "LeverageOpen",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
+      },
       {
-        "indexed": true,
+        "indexed": false,
         "internalType": "uint256",
-        "name": "tokenId",
+        "name": "margin",
         "type": "uint256"
       },
       {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "moduleKey",
-        "type": "bytes32"
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "size",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "tradeFee",
+        "type": "uint256"
       }
     ],
-    "name": "Locked",
+    "name": "LeverageOpen",
     "type": "event"
   },
   {
@@ -512,44 +558,6 @@
       }
     ],
     "name": "Transfer",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "tokenId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "moduleKey",
-        "type": "bytes32"
-      }
-    ],
-    "name": "Unlocked",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "tokenId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "moduleKey",
-        "type": "bytes32"
-      }
-    ],
-    "name": "UnlockedAllLocks",
     "type": "event"
   },
   {
@@ -606,13 +614,8 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_tokenId",
+        "name": "tokenId_",
         "type": "uint256"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "_moduleKey",
-        "type": "bytes32"
       }
     ],
     "name": "burn",
@@ -624,12 +627,12 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_margin",
+        "name": "margin_",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "_size",
+        "name": "size_",
         "type": "uint256"
       }
     ],
@@ -641,19 +644,9 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "_account",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_keeper",
-        "type": "address"
-      },
-      {
         "components": [
           {
-            "internalType": "enum FlatcoinStructs.OrderType",
+            "internalType": "enum OrderType",
             "name": "orderType",
             "type": "uint8"
           },
@@ -673,8 +666,8 @@
             "type": "bytes"
           }
         ],
-        "internalType": "struct FlatcoinStructs.Order",
-        "name": "_order",
+        "internalType": "struct Order",
+        "name": "order_",
         "type": "tuple"
       }
     ],
@@ -686,19 +679,9 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "_account",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_keeper",
-        "type": "address"
-      },
-      {
         "components": [
           {
-            "internalType": "enum FlatcoinStructs.OrderType",
+            "internalType": "enum OrderType",
             "name": "orderType",
             "type": "uint8"
           },
@@ -718,13 +701,19 @@
             "type": "bytes"
           }
         ],
-        "internalType": "struct FlatcoinStructs.Order",
-        "name": "_order",
+        "internalType": "struct Order",
+        "name": "order_",
         "type": "tuple"
       }
     ],
     "name": "executeClose",
-    "outputs": [],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "marginAfterPositionClose_",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable",
     "type": "function"
   },
@@ -732,18 +721,13 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_account",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_keeper",
+        "name": "account_",
         "type": "address"
       },
       {
         "components": [
           {
-            "internalType": "enum FlatcoinStructs.OrderType",
+            "internalType": "enum OrderType",
             "name": "orderType",
             "type": "uint8"
           },
@@ -763,51 +747,20 @@
             "type": "bytes"
           }
         ],
-        "internalType": "struct FlatcoinStructs.Order",
-        "name": "_order",
+        "internalType": "struct Order",
+        "name": "order_",
         "type": "tuple"
       }
     ],
     "name": "executeOpen",
-    "outputs": [],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "newTokenId_",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "fundingAdjustedLongPnLTotal",
-    "outputs": [
-      {
-        "internalType": "int256",
-        "name": "_fundingAdjustedPnL",
-        "type": "int256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint32",
-        "name": "_maxAge",
-        "type": "uint32"
-      },
-      {
-        "internalType": "bool",
-        "name": "_priceDiffCheck",
-        "type": "bool"
-      }
-    ],
-    "name": "fundingAdjustedLongPnLTotal",
-    "outputs": [
-      {
-        "internalType": "int256",
-        "name": "_fundingAdjustedPnL",
-        "type": "int256"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -830,45 +783,10 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "getMarketSummary",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "int256",
-            "name": "profitLossTotalByLongs",
-            "type": "int256"
-          },
-          {
-            "internalType": "int256",
-            "name": "accruedFundingTotalByLongs",
-            "type": "int256"
-          },
-          {
-            "internalType": "int256",
-            "name": "currentFundingRate",
-            "type": "int256"
-          },
-          {
-            "internalType": "int256",
-            "name": "nextFundingEntry",
-            "type": "int256"
-          }
-        ],
-        "internalType": "struct FlatcoinStructs.MarketSummary",
-        "name": "_marketSummary",
-        "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_tokenId",
+        "name": "tokenId_",
         "type": "uint256"
       }
     ],
@@ -892,8 +810,8 @@
             "type": "int256"
           }
         ],
-        "internalType": "struct FlatcoinStructs.PositionSummary",
-        "name": "_positionSummary",
+        "internalType": "struct PositionSummary",
+        "name": "positionSummary_",
         "type": "tuple"
       }
     ],
@@ -903,17 +821,61 @@
   {
     "inputs": [
       {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "averagePrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "marginDeposited",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "additionalSize",
+            "type": "uint256"
+          },
+          {
+            "internalType": "int256",
+            "name": "entryCumulativeFunding",
+            "type": "int256"
+          }
+        ],
+        "internalType": "struct Position",
+        "name": "position_",
+        "type": "tuple"
+      },
+      {
         "internalType": "uint256",
-        "name": "_size",
+        "name": "price_",
         "type": "uint256"
       }
     ],
-    "name": "getTradeFee",
+    "name": "getPositionSummary",
     "outputs": [
       {
-        "internalType": "uint256",
-        "name": "_tradeFee",
-        "type": "uint256"
+        "components": [
+          {
+            "internalType": "int256",
+            "name": "profitLoss",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "accruedFunding",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "marginAfterSettlement",
+            "type": "int256"
+          }
+        ],
+        "internalType": "struct PositionSummary",
+        "name": "positionSummary_",
+        "type": "tuple"
       }
     ],
     "stateMutability": "view",
@@ -923,27 +885,22 @@
     "inputs": [
       {
         "internalType": "contract IFlatcoinVault",
-        "name": "_vault",
+        "name": "vault_",
         "type": "address"
       },
       {
         "internalType": "uint256",
-        "name": "_levTradingFee",
+        "name": "marginMin_",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "_marginMin",
+        "name": "leverageMin_",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "_leverageMin",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_leverageMax",
+        "name": "leverageMax_",
         "type": "uint256"
       }
     ],
@@ -970,49 +927,6 @@
       {
         "internalType": "bool",
         "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_tokenId",
-        "type": "uint256"
-      }
-    ],
-    "name": "isLocked",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "_lockStatus",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_tokenId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "_moduleKey",
-        "type": "bytes32"
-      }
-    ],
-    "name": "isLockedByModule",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "_lockedByModuleStatus",
         "type": "bool"
       }
     ],
@@ -1047,7 +961,7 @@
   },
   {
     "inputs": [],
-    "name": "leverageTradingFee",
+    "name": "marginMin",
     "outputs": [
       {
         "internalType": "uint256",
@@ -1061,32 +975,20 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "_tokenId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "_moduleKey",
-        "type": "bytes32"
+        "internalType": "address",
+        "name": "to_",
+        "type": "address"
       }
     ],
-    "name": "lock",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "marginMin",
+    "name": "mint",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "tokenId_",
         "type": "uint256"
       }
     ],
-    "stateMutability": "view",
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1194,17 +1096,17 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_marginMin",
+        "name": "marginMin_",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "_leverageMin",
+        "name": "leverageMin_",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "_leverageMax",
+        "name": "leverageMax_",
         "type": "uint256"
       }
     ],
@@ -1216,21 +1118,8 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "_leverageTradingFee",
-        "type": "uint256"
-      }
-    ],
-    "name": "setLeverageTradingFee",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "contract IFlatcoinVault",
-        "name": "_vault",
+        "name": "vault_",
         "type": "address"
       }
     ],
@@ -1378,24 +1267,6 @@
       }
     ],
     "name": "transferFrom",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_tokenId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "_moduleKey",
-        "type": "bytes32"
-      }
-    ],
-    "name": "unlock",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

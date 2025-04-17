@@ -29,6 +29,17 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "AddressNotWhitelisted",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "collateralCap",
         "type": "uint256"
@@ -55,28 +66,27 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "maxVelocitySkew",
-        "type": "uint256"
+        "internalType": "uint64",
+        "name": "percentage",
+        "type": "uint64"
       }
     ],
-    "name": "InvalidMaxVelocitySkew",
-    "type": "error"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "skewFractionMax",
-        "type": "uint256"
-      }
-    ],
-    "name": "InvalidSkewFractionMax",
+    "name": "InvalidPercentageValue",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "MarginMismatchOnClose",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MaxPositionsInitZero",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MaxPositionsReached",
     "type": "error"
   },
   {
@@ -142,22 +152,6 @@
   {
     "inputs": [
       {
-        "internalType": "uint8",
-        "name": "bits",
-        "type": "uint8"
-      },
-      {
-        "internalType": "uint256",
-        "name": "value",
-        "type": "uint256"
-      }
-    ],
-    "name": "SafeCastOverflowedUintDowncast",
-    "type": "error"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "address",
         "name": "token",
         "type": "address"
@@ -198,19 +192,6 @@
     ],
     "name": "ZeroValue",
     "type": "error"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "int256",
-        "name": "settledFundingFee",
-        "type": "int256"
-      }
-    ],
-    "name": "FundingFeesSettled",
-    "type": "event"
   },
   {
     "anonymous": false,
@@ -259,8 +240,8 @@
             "type": "address"
           }
         ],
-        "internalType": "struct FlatcoinStructs.AuthorizedModule",
-        "name": "_module",
+        "internalType": "struct AuthorizedModule",
+        "name": "module_",
         "type": "tuple"
       }
     ],
@@ -284,8 +265,8 @@
             "type": "address"
           }
         ],
-        "internalType": "struct FlatcoinStructs.AuthorizedModule[]",
-        "name": "_modules",
+        "internalType": "struct AuthorizedModule[]",
+        "name": "modules_",
         "type": "tuple[]"
       }
     ],
@@ -298,7 +279,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_depositAmount",
+        "name": "depositAmount_",
         "type": "uint256"
       }
     ],
@@ -318,12 +299,12 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_sizeChange",
+        "name": "sizeChange_",
         "type": "uint256"
       },
       {
         "internalType": "int256",
-        "name": "_stableCollateralChange",
+        "name": "stableCollateralChange_",
         "type": "int256"
       }
     ],
@@ -337,22 +318,9 @@
     "name": "collateral",
     "outputs": [
       {
-        "internalType": "contract IERC20",
+        "internalType": "contract IERC20Metadata",
         "name": "",
         "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "cumulativeFundingRate",
-    "outputs": [
-      {
-        "internalType": "int256",
-        "name": "",
-        "type": "int256"
       }
     ],
     "stateMutability": "view",
@@ -362,39 +330,13 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_tokenId",
+        "name": "tokenId_",
         "type": "uint256"
       }
     ],
     "name": "deletePosition",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getCurrentFundingRate",
-    "outputs": [
-      {
-        "internalType": "int256",
-        "name": "currentFundingRate_",
-        "type": "int256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getCurrentSkew",
-    "outputs": [
-      {
-        "internalType": "int256",
-        "name": "_skew",
-        "type": "int256"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -419,9 +361,22 @@
             "type": "uint256"
           }
         ],
-        "internalType": "struct FlatcoinStructs.GlobalPositions",
-        "name": "_globalPositionsDetails",
+        "internalType": "struct GlobalPositions",
+        "name": "globalPositionsDetails_",
         "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getMaxPositionIds",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "openPositionIds_",
+        "type": "uint256[]"
       }
     ],
     "stateMutability": "view",
@@ -431,7 +386,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_tokenId",
+        "name": "tokenId_",
         "type": "uint256"
       }
     ],
@@ -460,70 +415,8 @@
             "type": "int256"
           }
         ],
-        "internalType": "struct FlatcoinStructs.Position",
-        "name": "_positionDetails",
-        "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getVaultSummary",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "int256",
-            "name": "marketSkew",
-            "type": "int256"
-          },
-          {
-            "internalType": "int256",
-            "name": "cumulativeFundingRate",
-            "type": "int256"
-          },
-          {
-            "internalType": "int256",
-            "name": "lastRecomputedFundingRate",
-            "type": "int256"
-          },
-          {
-            "internalType": "uint64",
-            "name": "lastRecomputedFundingTimestamp",
-            "type": "uint64"
-          },
-          {
-            "internalType": "uint256",
-            "name": "stableCollateralTotal",
-            "type": "uint256"
-          },
-          {
-            "components": [
-              {
-                "internalType": "int256",
-                "name": "marginDepositedTotal",
-                "type": "int256"
-              },
-              {
-                "internalType": "uint256",
-                "name": "averagePrice",
-                "type": "uint256"
-              },
-              {
-                "internalType": "uint256",
-                "name": "sizeOpenedTotal",
-                "type": "uint256"
-              }
-            ],
-            "internalType": "struct FlatcoinStructs.GlobalPositions",
-            "name": "globalPositions",
-            "type": "tuple"
-          }
-        ],
-        "internalType": "struct FlatcoinStructs.VaultSummary",
-        "name": "_vaultSummary",
+        "internalType": "struct Position",
+        "name": "positionDetails_",
         "type": "tuple"
       }
     ],
@@ -533,39 +426,106 @@
   {
     "inputs": [
       {
-        "internalType": "contract IERC20",
-        "name": "_collateral",
+        "internalType": "uint256",
+        "name": "feeAmount_",
+        "type": "uint256"
+      }
+    ],
+    "name": "getProtocolFee",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "protocolFeePortion_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "size_",
+        "type": "uint256"
+      }
+    ],
+    "name": "getTradeFee",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "tradeFee_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "amount_",
+        "type": "uint256"
+      }
+    ],
+    "name": "getWithdrawalFee",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "withdrawalFee_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "contract IERC20Metadata",
+        "name": "collateral_",
         "type": "address"
       },
       {
-        "internalType": "uint256",
-        "name": "_maxFundingVelocity",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_maxVelocitySkew",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_skewFractionMax",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_stableCollateralCap",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "protocolFeeRecipient_",
+        "type": "address"
       },
       {
         "internalType": "uint64",
-        "name": "_minExecutabilityAge",
+        "name": "protocolFeePercentage_",
         "type": "uint64"
       },
       {
         "internalType": "uint64",
-        "name": "_maxExecutabilityAge",
+        "name": "leverageTradingFee_",
         "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "stableWithdrawFee_",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxDeltaError_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "skewFractionMax_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "stableCollateralCap_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxPositions_",
+        "type": "uint256"
       }
     ],
     "name": "initialize",
@@ -593,6 +553,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "isMaxPositionsReached",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "maxReached_",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "bytes32",
@@ -612,13 +585,19 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "lastRecomputedFundingRate",
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account_",
+        "type": "address"
+      }
+    ],
+    "name": "isPositionOpenWhitelisted",
     "outputs": [
       {
-        "internalType": "int256",
-        "name": "",
-        "type": "int256"
+        "internalType": "bool",
+        "name": "whitelisted_",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -626,20 +605,7 @@
   },
   {
     "inputs": [],
-    "name": "lastRecomputedFundingTimestamp",
-    "outputs": [
-      {
-        "internalType": "uint64",
-        "name": "",
-        "type": "uint64"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "maxExecutabilityAge",
+    "name": "leverageTradingFee",
     "outputs": [
       {
         "internalType": "uint64",
@@ -652,7 +618,7 @@
   },
   {
     "inputs": [],
-    "name": "maxFundingVelocity",
+    "name": "maxDeltaError",
     "outputs": [
       {
         "internalType": "uint256",
@@ -665,25 +631,12 @@
   },
   {
     "inputs": [],
-    "name": "maxVelocitySkew",
+    "name": "maxPositions",
     "outputs": [
       {
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "minExecutabilityAge",
-    "outputs": [
-      {
-        "internalType": "uint64",
-        "name": "",
-        "type": "uint64"
       }
     ],
     "stateMutability": "view",
@@ -725,7 +678,7 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "_moduleKey",
+        "name": "moduleKey_",
         "type": "bytes32"
       }
     ],
@@ -735,10 +688,36 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "protocolFeePercentage",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "protocolFeeRecipient",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "_modKey",
+        "name": "modKey_",
         "type": "bytes32"
       }
     ],
@@ -758,12 +737,12 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "to",
+        "name": "to_",
         "type": "address"
       },
       {
         "internalType": "uint256",
-        "name": "amount",
+        "name": "amount_",
         "type": "uint256"
       }
     ],
@@ -776,42 +755,55 @@
     "inputs": [
       {
         "internalType": "uint64",
-        "name": "_minExecutabilityAge",
+        "name": "leverageTradingFee_",
         "type": "uint64"
+      }
+    ],
+    "name": "setLeverageTradingFee",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "maxDeltaError_",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMaxDeltaError",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "maxPositions_",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMaxPositions",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account_",
+        "type": "address"
       },
       {
-        "internalType": "uint64",
-        "name": "_maxExecutabilityAge",
-        "type": "uint64"
+        "internalType": "bool",
+        "name": "whitelisted_",
+        "type": "bool"
       }
     ],
-    "name": "setExecutabilityAge",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_newMaxFundingVelocity",
-        "type": "uint256"
-      }
-    ],
-    "name": "setMaxFundingVelocity",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_newMaxVelocitySkew",
-        "type": "uint256"
-      }
-    ],
-    "name": "setMaxVelocitySkew",
+    "name": "setMaxPositionsWhitelist",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -841,13 +833,13 @@
             "type": "int256"
           }
         ],
-        "internalType": "struct FlatcoinStructs.Position",
-        "name": "_newPosition",
+        "internalType": "struct Position",
+        "name": "newPosition_",
         "type": "tuple"
       },
       {
         "internalType": "uint256",
-        "name": "_tokenId",
+        "name": "tokenId_",
         "type": "uint256"
       }
     ],
@@ -859,8 +851,34 @@
   {
     "inputs": [
       {
+        "internalType": "uint64",
+        "name": "protocolFeePercentage_",
+        "type": "uint64"
+      }
+    ],
+    "name": "setProtocolFeePercentage",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "protocolFeeRecipient_",
+        "type": "address"
+      }
+    ],
+    "name": "setProtocolFeeRecipient",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
-        "name": "_skewFractionMax",
+        "name": "skewFractionMax_",
         "type": "uint256"
       }
     ],
@@ -873,7 +891,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_collateralCap",
+        "name": "collateralCap_",
         "type": "uint256"
       }
     ],
@@ -883,8 +901,14 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "settleFundingFees",
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "stableWithdrawFee_",
+        "type": "uint64"
+      }
+    ],
+    "name": "setStableWithdrawFee",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -929,6 +953,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "stableWithdrawFee",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -945,7 +982,7 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "_moduleKey",
+        "name": "moduleKey_",
         "type": "bytes32"
       }
     ],
@@ -957,18 +994,31 @@
   {
     "inputs": [
       {
+        "internalType": "int256",
+        "name": "marginDelta_",
+        "type": "int256"
+      }
+    ],
+    "name": "updateGlobalMargin",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
-        "name": "_price",
+        "name": "price_",
         "type": "uint256"
       },
       {
         "internalType": "int256",
-        "name": "_marginDelta",
+        "name": "marginDelta_",
         "type": "int256"
       },
       {
         "internalType": "int256",
-        "name": "_additionalSizeDelta",
+        "name": "additionalSizeDelta_",
         "type": "int256"
       }
     ],
@@ -981,7 +1031,7 @@
     "inputs": [
       {
         "internalType": "int256",
-        "name": "_stableCollateralAdjustment",
+        "name": "stableCollateralAdjustment_",
         "type": "int256"
       }
     ],

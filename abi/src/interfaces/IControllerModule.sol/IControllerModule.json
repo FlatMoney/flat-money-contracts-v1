@@ -1,0 +1,282 @@
+[
+  {
+    "inputs": [],
+    "name": "CONTROLLER_TYPE",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "controllerType",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "averagePrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "marginDeposited",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "additionalSize",
+            "type": "uint256"
+          },
+          {
+            "internalType": "int256",
+            "name": "entryCumulativeFunding",
+            "type": "int256"
+          }
+        ],
+        "internalType": "struct Position",
+        "name": "position",
+        "type": "tuple"
+      }
+    ],
+    "name": "accruedFunding",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "accruedFunding",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "accruedFundingTotalByLongs",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "accruedFundingLongs",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "cumulativeFundingRate",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "cumulativeFundingRate",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "currentFundingRate",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "currFundingRate",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "maxAge",
+        "type": "uint32"
+      },
+      {
+        "internalType": "bool",
+        "name": "priceDiffCheck",
+        "type": "bool"
+      }
+    ],
+    "name": "fundingAdjustedLongPnLTotal",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "fundingAdjustedPnL",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getCurrentSkew",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "skew",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lastRecomputedFundingRate",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "lastRecomputedFundingRate",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lastRecomputedFundingTimestamp",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "lastRecomputedFundingTimestamp",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "maxFundingVelocity",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "maxFundingVelocity",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "maxVelocitySkew",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "maxVelocitySkew",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "nextFundingEntry",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "nextFundingEntry",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "averagePrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "marginDeposited",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "additionalSize",
+            "type": "uint256"
+          },
+          {
+            "internalType": "int256",
+            "name": "entryCumulativeFunding",
+            "type": "int256"
+          }
+        ],
+        "internalType": "struct Position",
+        "name": "position",
+        "type": "tuple"
+      },
+      {
+        "internalType": "uint256",
+        "name": "price",
+        "type": "uint256"
+      }
+    ],
+    "name": "profitLoss",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "pnl",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "price",
+        "type": "uint256"
+      }
+    ],
+    "name": "profitLossTotal",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "pnl",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "settleFundingFees",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "targetSizeCollateralRatio",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "targetSizeCollateralRatio",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

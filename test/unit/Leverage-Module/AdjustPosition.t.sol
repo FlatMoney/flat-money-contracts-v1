@@ -1,23 +1,20 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
-
-import {DelayedOrder} from "src/DelayedOrder.sol";
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
-import {FlatcoinErrors} from "../../../src/libraries/FlatcoinErrors.sol";
-import {FlatcoinStructs} from "../../../src/libraries/FlatcoinStructs.sol";
+
+import "../../helpers/OrderHelpers.sol";
 
 import "forge-std/console2.sol";
 
 contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     struct PositionState {
         uint256 collateralPrice;
-        FlatcoinStructs.Position position;
-        FlatcoinStructs.PositionSummary positionSummary;
-        FlatcoinStructs.MarketSummary marketSummary;
-        FlatcoinStructs.GlobalPositions globalPositions;
+        LeverageModuleStructs.Position position;
+        LeverageModuleStructs.PositionSummary positionSummary;
+        LeverageModuleStructs.MarketSummary marketSummary;
+        FlatcoinVaultStructs.GlobalPositions globalPositions;
         uint256 collateralPerShare;
     }
 
@@ -28,7 +25,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
 
         vm.startPrank(admin);
 
-        leverageModProxy.setLeverageTradingFee(leverageTradingFee);
+        vaultProxy.setLeverageTradingFee(uint64(leverageTradingFee));
     }
 
     /**
@@ -71,9 +68,9 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             ),
             expectedErrorSignature: "LeverageTooLow(uint256,uint256)",
             errorData: abi.encodeWithSelector(
-                FlatcoinErrors.LeverageTooLow.selector,
+                LeverageModule.LeverageTooLow.selector,
                 1.5e18,
-                1e18 + (4e18 * 1e18) / (10e18 - leverageModProxy.getTradeFee(26e18) - mockKeeperFee.getKeeperFee())
+                1e18 + (4e18 * 1e18) / (10e18 - vaultProxy.getTradeFee(26e18) - mockKeeperFee.getKeeperFee())
             )
         });
     }
@@ -114,7 +111,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
                 0
             ),
             expectedErrorSignature: "NotTokenOwner(uint256,address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.NotTokenOwner.selector, tokenId, bob)
+            errorData: abi.encodeWithSelector(ICommonErrors.NotTokenOwner.selector, tokenId, bob)
         });
     }
 
@@ -155,7 +152,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             ),
             expectedErrorSignature: "ZeroValue(string)",
             errorData: abi.encodeWithSelector(
-                FlatcoinErrors.ZeroValue.selector,
+                ICommonErrors.ZeroValue.selector,
                 "marginAdjustment|additionalSizeAdjustment"
             )
         });
@@ -198,7 +195,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             ),
             expectedErrorSignature: "ValueNotPositive(string)",
             errorData: abi.encodeWithSelector(
-                FlatcoinErrors.ValueNotPositive.selector,
+                ICommonErrors.ValueNotPositive.selector,
                 "newMarginAfterSettlement|newAdditionalSize"
             )
         });
@@ -232,9 +229,9 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
         // Immediately liquidatable due to liquidation buffer/margin provided being less than required
         // for the position size.
         leverageModProxy.setLeverageCriteria({
-            _marginMin: 0.05e18,
-            _leverageMin: 1.5e18,
-            _leverageMax: type(uint256).max
+            marginMin_: 0.05e18,
+            leverageMin_: 1.5e18,
+            leverageMax_: type(uint256).max
         });
 
         // Modifying the position to have margin as 0.05 ETH and additional size as 120 ETH
@@ -245,7 +242,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
                 OrderHelpers.announceAdjustLeverage.selector,
                 alice,
                 tokenId,
-                int256(-9.95e18) + int256(leverageModProxy.getTradeFee(90e18)) + int256(mockKeeperFee.getKeeperFee()),
+                int256(-9.95e18) + int256(vaultProxy.getTradeFee(90e18)) + int256(mockKeeperFee.getKeeperFee()),
                 90e18,
                 0
             ),
@@ -284,9 +281,9 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
         // Also increase the minimum margin requirement to 0.075 ETH so that the min margin assertion check
         // in the adjust function fails.
         leverageModProxy.setLeverageCriteria({
-            _marginMin: 0.75e18,
-            _leverageMin: 1.5e18,
-            _leverageMax: type(uint256).max
+            marginMin_: 0.75e18,
+            leverageMin_: 1.5e18,
+            leverageMax_: type(uint256).max
         });
 
         // Modifying the position to have margin as 0.05 ETH and additional size as 120 ETH
@@ -297,12 +294,12 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
                 OrderHelpers.announceAdjustLeverage.selector,
                 alice,
                 tokenId,
-                int256(-9.29e18) + int256(leverageModProxy.getTradeFee(90e18)) + int256(mockKeeperFee.getKeeperFee()),
+                int256(-9.29e18) + int256(vaultProxy.getTradeFee(90e18)) + int256(mockKeeperFee.getKeeperFee()),
                 90e18,
                 0
             ),
             expectedErrorSignature: "MarginTooSmall(uint256,uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.MarginTooSmall.selector, 0.75e18, 0.71e18)
+            errorData: abi.encodeWithSelector(LeverageModule.MarginTooSmall.selector, 0.75e18, 0.71e18)
         });
     }
 
@@ -343,7 +340,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             ),
             expectedErrorSignature: "ValueNotPositive(string)",
             errorData: abi.encodeWithSelector(
-                FlatcoinErrors.ValueNotPositive.selector,
+                ICommonErrors.ValueNotPositive.selector,
                 "newMarginAfterSettlement|newAdditionalSize"
             )
         });
@@ -353,16 +350,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
      * Price Increase Suites (8 Scenarios)
      */
     function test_adjust_position_margin_increase_price_increase() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -372,18 +370,20 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 2000e8;
         // 100% increase
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
+
+        uint256 keeperFee2 = mockKeeperFee.getKeeperFee();
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -396,17 +396,18 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: 5e18,
             additionalSizeAdjustment: 0,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         assertEq(
             aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                3 -
-                leverageModProxy.getTradeFee(30e18) -
+                keeperFee *
+                2 -
+                keeperFee2 -
+                vaultProxy.getTradeFee(30e18) -
                 stableDeposit -
                 15e18,
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -414,7 +415,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -428,16 +429,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_size_increase_price_increase() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -447,18 +449,18 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 2000e8;
         // 100% increase
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -471,18 +473,13 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: 0,
             additionalSizeAdjustment: 10e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: mockKeeperFee.getKeeperFee()
         });
 
         // Trade fee is taken from existing margin during size adjustments when margin adjustment = 0
         assertEq(
-            aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                2 -
-                leverageModProxy.getTradeFee(30e18) -
-                stableDeposit -
-                10e18,
-            WETH.balanceOf(alice),
+            aliceCollateralBalanceBefore - keeperFee * 2 - vaultProxy.getTradeFee(30e18) - stableDeposit - 10e18,
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -490,7 +487,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -504,16 +501,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_margin_increase_size_increase_price_increase() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -523,19 +521,21 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 2000e8;
 
         // 100% increase
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
+
+        uint256 keeperFee2 = mockKeeperFee.getKeeperFee();
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -554,13 +554,14 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
         // Trade fee is taken from user during size adjustments when margin adjustment >= 0
         assertEq(
             aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                3 -
-                leverageModProxy.getTradeFee(30e18) -
+                keeperFee *
+                2 -
+                keeperFee2 -
+                vaultProxy.getTradeFee(30e18) -
                 stableDeposit -
                 20e18 -
                 adjustmentTradeFee,
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -568,7 +569,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -582,16 +583,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_margin_increase_size_decrease_price_increase() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -601,18 +603,20 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 2000e8;
         // 100% increase
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
+
+        uint256 keeperFee2 = mockKeeperFee.getKeeperFee();
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -625,19 +629,20 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: 10e18,
             additionalSizeAdjustment: -10e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         // Trade fee is taken from user during size adjustments when margin adjustment >= 0
         assertEq(
             aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                3 -
-                leverageModProxy.getTradeFee(30e18) -
+                keeperFee *
+                2 -
+                keeperFee2 -
+                vaultProxy.getTradeFee(30e18) -
                 stableDeposit -
                 20e18 -
                 adjustmentTradeFee,
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -645,7 +650,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -659,16 +664,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_margin_decrease_size_increase_price_increase() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -678,18 +684,18 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 2000e8;
         // 100% increase
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -702,19 +708,13 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: -1e18,
             additionalSizeAdjustment: 10e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: mockKeeperFee.getKeeperFee()
         });
 
         // Trade fee is taken from existing margin during size adjustments when margin adjustment < 0
         assertEq(
-            aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                2 -
-                leverageModProxy.getTradeFee(30e18) -
-                stableDeposit -
-                10e18 +
-                1e18,
-            WETH.balanceOf(alice),
+            aliceCollateralBalanceBefore - keeperFee * 2 - vaultProxy.getTradeFee(30e18) - stableDeposit - 10e18 + 1e18,
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -722,7 +722,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -736,16 +736,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_margin_decrease_size_decrease_price_increase() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -755,18 +756,18 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 2000e8;
         // 100% increase
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -779,19 +780,13 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: -1e18,
             additionalSizeAdjustment: -10e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: mockKeeperFee.getKeeperFee()
         });
 
         // Trade fee is taken from existing margin during size adjustments when margin adjustment < 0
         assertEq(
-            aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                2 -
-                leverageModProxy.getTradeFee(30e18) -
-                stableDeposit -
-                10e18 +
-                1e18,
-            WETH.balanceOf(alice),
+            aliceCollateralBalanceBefore - keeperFee * 2 - vaultProxy.getTradeFee(30e18) - stableDeposit - 10e18 + 1e18,
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -799,7 +794,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -813,16 +808,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_margin_decrease_price_increase() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -832,18 +828,18 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 2000e8;
         // 100% increase
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -856,19 +852,13 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: -1e18,
             additionalSizeAdjustment: 0,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: mockKeeperFee.getKeeperFee()
         });
 
         // Trade fee is taken from existing margin during size adjustments when margin adjustment < 0
         assertEq(
-            aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                2 -
-                leverageModProxy.getTradeFee(30e18) -
-                stableDeposit -
-                10e18 +
-                1e18,
-            WETH.balanceOf(alice),
+            aliceCollateralBalanceBefore - keeperFee * 2 - vaultProxy.getTradeFee(30e18) - stableDeposit - 10e18 + 1e18,
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -876,7 +866,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -890,16 +880,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_size_decrease_price_increase() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -909,18 +900,18 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 2000e8;
         // 100% increase
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -933,18 +924,13 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: 0,
             additionalSizeAdjustment: -10e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: mockKeeperFee.getKeeperFee()
         });
 
         // Trade fee is taken from existing margin during size adjustments when margin adjustment = 0
         assertEq(
-            aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                2 -
-                leverageModProxy.getTradeFee(30e18) -
-                stableDeposit -
-                10e18,
-            WETH.balanceOf(alice),
+            aliceCollateralBalanceBefore - keeperFee * 2 - vaultProxy.getTradeFee(30e18) - stableDeposit - 10e18,
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -952,7 +938,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -967,7 +953,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
 
     function test_adjust_position_size_decrease_price_large_increase() public {
         vm.startPrank(admin);
-        leverageModProxy.setLeverageCriteria({_marginMin: 0.05e18, _leverageMin: 1.2e18, _leverageMax: 25e18});
+        leverageModProxy.setLeverageCriteria({marginMin_: 0.05e18, leverageMin_: 1.2e18, leverageMax_: 25e18});
 
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
@@ -991,7 +977,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
 
         uint256 newCollateralPrice = 3000e8;
 
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         // Just ensures that there are no global parameter update issues
         announceAndExecuteLeverageAdjust({
@@ -1010,16 +996,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
      */
 
     function test_adjust_position_margin_increase_price_decrease() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -1029,17 +1016,19 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 800e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
+
+        uint256 keeperFee2 = mockKeeperFee.getKeeperFee();
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1052,18 +1041,19 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: 5e18,
             additionalSizeAdjustment: 0,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         // Trade fee is not taken (0) when size is not adjusted
         assertEq(
             aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                3 -
-                leverageModProxy.getTradeFee(30e18) -
+                keeperFee *
+                2 -
+                keeperFee2 -
+                vaultProxy.getTradeFee(30e18) -
                 stableDeposit -
                 15e18,
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -1071,7 +1061,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1085,16 +1075,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_size_increase_price_decrease() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -1104,17 +1095,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 800e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1127,18 +1118,13 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: 0,
             additionalSizeAdjustment: 10e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: mockKeeperFee.getKeeperFee()
         });
 
         // Trade fee is taken from existing margin during size adjustments when margin adjustment = 0
         assertEq(
-            aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                2 -
-                leverageModProxy.getTradeFee(30e18) -
-                stableDeposit -
-                10e18,
-            WETH.balanceOf(alice),
+            aliceCollateralBalanceBefore - keeperFee * 2 - vaultProxy.getTradeFee(30e18) - stableDeposit - 10e18,
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -1146,7 +1132,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1160,16 +1146,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_margin_increase_size_increase_price_decrease() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -1179,17 +1166,19 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 800e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
+
+        uint256 keeperFee2 = mockKeeperFee.getKeeperFee();
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1202,19 +1191,20 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: 10e18,
             additionalSizeAdjustment: 10e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         // Trade fee is taken from user during size adjustments when margin adjustment >= 0
         assertEq(
             aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                3 -
-                leverageModProxy.getTradeFee(30e18) -
+                keeperFee *
+                2 -
+                keeperFee2 -
+                vaultProxy.getTradeFee(30e18) -
                 stableDeposit -
                 20e18 -
                 adjustmentTradeFee,
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -1222,7 +1212,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1236,16 +1226,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_margin_increase_size_decrease_price_decrease() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -1255,17 +1246,19 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 800e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
+
+        uint256 keeperFee2 = mockKeeperFee.getKeeperFee();
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1278,19 +1271,20 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: 10e18,
             additionalSizeAdjustment: -10e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee2
         });
 
         // Trade fee is taken from user during size adjustments when margin adjustment >= 0
         assertEq(
             aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                3 -
-                leverageModProxy.getTradeFee(30e18) -
+                keeperFee *
+                2 -
+                keeperFee2 -
+                vaultProxy.getTradeFee(30e18) -
                 stableDeposit -
                 20e18 -
                 adjustmentTradeFee,
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -1298,7 +1292,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1312,16 +1306,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_margin_decrease_size_increase_price_decrease() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 20 ETH size (3x)
@@ -1331,17 +1326,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 20e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 800e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1354,19 +1349,13 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: -1e18,
             additionalSizeAdjustment: 10e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: mockKeeperFee.getKeeperFee()
         });
 
         // Trade fee is taken from existing margin during size adjustments when margin adjustment < 0
         assertEq(
-            aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                2 -
-                leverageModProxy.getTradeFee(20e18) -
-                stableDeposit -
-                10e18 +
-                1e18,
-            WETH.balanceOf(alice),
+            aliceCollateralBalanceBefore - keeperFee * 2 - vaultProxy.getTradeFee(20e18) - stableDeposit - 10e18 + 1e18,
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -1374,7 +1363,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1388,16 +1377,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_margin_decrease_size_decrease_price_decrease() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -1407,17 +1397,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 800e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1430,19 +1420,13 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: -1e18,
             additionalSizeAdjustment: -10e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: mockKeeperFee.getKeeperFee()
         });
 
         // Trade fee is taken from existing margin during size adjustments when margin adjustment < 0
         assertEq(
-            aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                2 -
-                leverageModProxy.getTradeFee(30e18) -
-                stableDeposit -
-                10e18 +
-                1e18,
-            WETH.balanceOf(alice),
+            aliceCollateralBalanceBefore - keeperFee * 2 - vaultProxy.getTradeFee(30e18) - stableDeposit - 10e18 + 1e18,
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -1450,7 +1434,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1464,16 +1448,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_margin_decrease_price_decrease() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -1483,17 +1468,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 800e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1506,19 +1491,13 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: -1e18,
             additionalSizeAdjustment: 0,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: mockKeeperFee.getKeeperFee()
         });
 
         // Trade fee is taken from existing margin during size adjustments when margin adjustment < 0
         assertEq(
-            aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                2 -
-                leverageModProxy.getTradeFee(30e18) -
-                stableDeposit -
-                10e18 +
-                1e18,
-            WETH.balanceOf(alice),
+            aliceCollateralBalanceBefore - keeperFee * 2 - vaultProxy.getTradeFee(30e18) - stableDeposit - 10e18 + 1e18,
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -1526,7 +1505,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1540,16 +1519,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
     }
 
     function test_adjust_position_size_decrease_price_decrease() public {
-        uint256 aliceCollateralBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         // 10 ETH margin, 30 ETH size (4x)
@@ -1559,17 +1539,17 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             margin: 10e18,
             additionalSize: 30e18,
             oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: keeperFee
         });
 
         uint256 newCollateralPrice = 800e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         PositionState memory stateBeforeAdjustment = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1582,18 +1562,13 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             marginAdjustment: 0,
             additionalSizeAdjustment: -10e18,
             oraclePrice: newCollateralPrice,
-            keeperFeeAmount: 0
+            keeperFeeAmount: mockKeeperFee.getKeeperFee()
         });
 
         // Trade fee is taken from existing margin during size adjustments when margin adjustment = 0
         assertEq(
-            aliceCollateralBalanceBefore -
-                mockKeeperFee.getKeeperFee() *
-                2 -
-                stableDeposit -
-                10e18 -
-                leverageModProxy.getTradeFee(30e18),
-            WETH.balanceOf(alice),
+            aliceCollateralBalanceBefore - keeperFee * 2 - stableDeposit - 10e18 - vaultProxy.getTradeFee(30e18),
+            collateralAsset.balanceOf(alice),
             "Alice collateral balance incorrect"
         );
 
@@ -1601,7 +1576,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             collateralPrice: newCollateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1636,7 +1611,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
         });
 
         uint256 newCollateralPrice = 500e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         announceAndExecuteLeverageAdjust({
             tokenId: tokenId,
@@ -1648,13 +1623,13 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             keeperFeeAmount: 0
         });
 
-        setWethPrice(collateralPrice);
+        setCollateralPrice(collateralPrice);
 
         PositionState memory stateAfterPriceRecovery = PositionState({
             collateralPrice: collateralPrice,
             position: vaultProxy.getPosition(tokenId),
             positionSummary: leverageModProxy.getPositionSummary(tokenId),
-            marketSummary: leverageModProxy.getMarketSummary(),
+            marketSummary: viewer.getMarketSummary(),
             globalPositions: vaultProxy.getGlobalPositions(),
             collateralPerShare: stableModProxy.stableCollateralPerShare()
         });
@@ -1673,9 +1648,10 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
         int256 additionalSizeAdjustment
     ) internal view {
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
-        uint256 tradeFee = leverageModProxy.getTradeFee(
+        uint256 tradeFee = vaultProxy.getTradeFee(
             additionalSizeAdjustment < 0 ? uint256(-additionalSizeAdjustment) : uint256(additionalSizeAdjustment)
         );
+        uint256 protocolFee = (vaultProxy.protocolFeePercentage() * tradeFee) / 1e18;
         int256 settledPnL;
 
         if (additionalSizeAdjustment <= 0) {
@@ -1690,11 +1666,16 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
                 "Last price should not have changed because size adjustment has either dereased or unchanged"
             );
         } else {
+            int256 expectedAveragePriceTimesTen = (((int256(beforeState.position.averagePrice) *
+                int256(beforeState.position.additionalSize)) +
+                (int256(afterState.collateralPrice) * 1e10 * additionalSizeAdjustment)) * 10) /
+                (int256(beforeState.position.additionalSize) + additionalSizeAdjustment);
+
             assertEq(
                 int256(afterState.position.averagePrice),
-                ((int256(beforeState.position.averagePrice) * int256(beforeState.position.additionalSize)) +
-                    (int256(afterState.collateralPrice) * 1e10 * additionalSizeAdjustment)) /
-                    (int256(beforeState.position.additionalSize) + additionalSizeAdjustment),
+                (expectedAveragePriceTimesTen % 10 != 0)
+                    ? expectedAveragePriceTimesTen / 10 + 1
+                    : expectedAveragePriceTimesTen / 10,
                 "Last price should be the average price because size adjustment has increased"
             );
         }
@@ -1764,7 +1745,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             "Total PnL change incorrect after adjustment"
         );
         assertApproxEqAbs(
-            beforeState.collateralPerShare + ((tradeFee * 1e18) / stableModProxy.totalSupply()),
+            beforeState.collateralPerShare + (((tradeFee - protocolFee) * 1e18) / stableModProxy.totalSupply()),
             afterState.collateralPerShare,
             1,
             "Collateral per share incorrect after adjustment"
@@ -1837,36 +1818,40 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
 
         // Set the new collateral price slightly above the liquidation price.
         // The announcement should be successful.
-        uint256 liqPrice = liquidationModProxy.liquidationPrice(tokenId);
+        uint256 liqPrice = viewer.liquidationPrice(tokenId);
         uint256 newCollateralPrice = (liqPrice + 2e10) / 1e10;
 
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
-        FlatcoinStructs.PositionSummary memory alicePositionSummary = leverageModProxy.getPositionSummary(tokenId);
+        LeverageModuleStructs.PositionSummary memory alicePositionSummary = leverageModProxy.getPositionSummary(
+            tokenId
+        );
         int256 settledMargin = alicePositionSummary.marginAfterSettlement;
 
         assertGt(settledMargin, 0, "Margin should be greater than 0 after settlement");
 
         vm.startPrank(alice);
 
-        WETH.approve(address(delayedOrderProxy), 5e18);
+        collateralAsset.approve(address(orderAnnouncementModProxy), 5e18);
 
-        delayedOrderProxy.announceLeverageAdjust({
-            tokenId: tokenId,
-            marginAdjustment: 3e18, // Top up margin such that the new margin is +ve and the position is not liquidatable.
-            additionalSizeAdjustment: -97e18,
-            fillPrice: liqPrice / 2,
-            keeperFee: mockKeeperFee.getKeeperFee()
+        orderAnnouncementModProxy.announceLeverageAdjust({
+            tokenId_: tokenId,
+            marginAdjustment_: 3e18, // Top up margin such that the new margin is +ve and the position is not liquidatable.
+            additionalSizeAdjustment_: -97e18,
+            fillPrice_: liqPrice / 2,
+            keeperFee_: mockKeeperFee.getKeeperFee()
         });
 
-        skip(vaultProxy.minExecutabilityAge());
+        skip(orderAnnouncementModProxy.minExecutabilityAge());
 
         // Set the collateral price $5 lower than the liquidation price.
         newCollateralPrice = (liqPrice / 1e10) - 5e8;
 
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
-        FlatcoinStructs.PositionSummary memory alicePositionSummaryAfter = leverageModProxy.getPositionSummary(tokenId);
+        LeverageModuleStructs.PositionSummary memory alicePositionSummaryAfter = leverageModProxy.getPositionSummary(
+            tokenId
+        );
 
         assertLt(alicePositionSummaryAfter.marginAfterSettlement, 0, "Margin should be less than 0 after settlement");
 
@@ -1874,7 +1859,7 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             target: address(this),
             callData: abi.encodeWithSelector(this.executeAdjustLeverage.selector, keeper, alice, newCollateralPrice),
             expectedErrorSignature: "ValueNotPositive(string)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.ValueNotPositive.selector, "marginAfterSettlement")
+            errorData: abi.encodeWithSelector(ICommonErrors.ValueNotPositive.selector, "marginAfterSettlement")
         });
     }
 
@@ -1889,10 +1874,10 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
             keeperFeeAmount: 0
         });
 
-        uint256 liqPrice = liquidationModProxy.liquidationPrice(tokenId);
+        uint256 liqPrice = viewer.liquidationPrice(tokenId);
         uint256 newCollateralPrice = (liqPrice - 1e10) / 1e10;
 
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         announceAdjustLeverage({
             traderAccount: alice,
@@ -1903,18 +1888,21 @@ contract AdjustPositionTest is OrderHelpers, ExpectRevert {
         });
 
         vm.startPrank(liquidator);
-        liquidationModProxy.liquidate(tokenId);
 
-        skip(uint256(vaultProxy.minExecutabilityAge()));
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = tokenId;
+        liquidationModProxy.liquidate(tokenIds);
+
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge()));
 
         vm.startPrank(keeper);
         bytes[] memory priceUpdateData = getPriceUpdateData(newCollateralPrice);
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
-            callData: abi.encodeWithSelector(DelayedOrder.executeOrder.selector, alice, priceUpdateData),
-            expectedErrorSignature: "ERC721NonexistentToken(uint256)",
-            errorData: abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, tokenId),
+            target: address(orderExecutionModProxy),
+            callData: abi.encodeWithSelector(OrderExecutionModule.executeOrder.selector, alice, priceUpdateData),
+            expectedErrorSignature: "OrderInvalid(address)",
+            errorData: abi.encodeWithSelector(OrderExecutionModule.OrderInvalid.selector, alice),
             value: 1
         });
     }

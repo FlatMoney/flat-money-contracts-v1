@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {IPyth} from "pyth-sdk-solidity/IPyth.sol";
 import {PythStructs} from "pyth-sdk-solidity/PythStructs.sol";
@@ -9,12 +9,12 @@ import "../../../helpers/OrderHelpers.sol";
 
 import "forge-std/console2.sol";
 
-contract ViewerTest is Setup, OrderHelpers {
+contract ViewerTest is OrderHelpers {
     function test_viewer_leverage_positions_account() public {
         vm.prank(admin);
-        vaultProxy.setMaxFundingVelocity(0.03e18); // we want to see the funding rates in action for the viewer
+        controllerModProxy.setMaxFundingVelocity(0.03e18); // we want to see the funding rates in action for the viewer
 
-        setWethPrice(2200e8);
+        setCollateralPrice(2200e8);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -24,7 +24,7 @@ contract ViewerTest is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        setWethPrice(2500e8);
+        setCollateralPrice(2500e8);
 
         uint256 tokenId = announceAndExecuteLeverageOpen({
             traderAccount: alice,
@@ -37,13 +37,13 @@ contract ViewerTest is Setup, OrderHelpers {
 
         vm.startPrank(alice);
 
-        limitOrderProxy.announceLimitOrder({
-            tokenId: tokenId,
-            priceLowerThreshold: 800e18,
-            priceUpperThreshold: 5000e18
+        orderAnnouncementModProxy.announceLimitOrder({
+            tokenId_: tokenId,
+            stopLossPrice_: 800e18,
+            profitTakePrice_: 5000e18
         });
 
-        setWethPrice(2100e8);
+        setCollateralPrice(2100e8);
 
         announceAndExecuteLeverageOpen({
             traderAccount: alice,
@@ -54,11 +54,11 @@ contract ViewerTest is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        setWethPrice(4000e8);
+        setCollateralPrice(4000e8);
 
         skip(1 days); // skewed short slightly, so funding rate should decrease over time
 
-        FlatcoinStructs.LeveragePositionData[] memory leveragePositions = viewer.getAccountLeveragePositionData(alice);
+        ViewerStructs.LeveragePositionData[] memory leveragePositions = viewer.getAccountLeveragePositionData(alice);
 
         assertEq(leveragePositions.length, 2, "invalid leveragePositions length");
 
@@ -74,16 +74,8 @@ contract ViewerTest is Setup, OrderHelpers {
             assertGt(leveragePositions[i].liquidationPrice, 0, "invalid liquidationPrice");
 
             if (i == 0) {
-                assertEq(
-                    leveragePositions[i].limitOrderPriceLowerThreshold,
-                    800e18,
-                    "invalid limitOrderPriceLowerThreshold"
-                );
-                assertEq(
-                    leveragePositions[i].limitOrderPriceUpperThreshold,
-                    5000e18,
-                    "invalid limitOrderPriceUpperThreshold"
-                );
+                assertEq(leveragePositions[i].limitOrderStopLossPrice, 800e18, "invalid limitOrderStopLossPrice");
+                assertEq(leveragePositions[i].limitOrderProfitTakePrice, 5000e18, "invalid limitOrderProfitTakePrice");
             }
         }
     }
@@ -91,9 +83,9 @@ contract ViewerTest is Setup, OrderHelpers {
     // Tests multiple getPositionData() function with a token range
     function test_viewer_leverage_positions_range() public {
         vm.prank(admin);
-        vaultProxy.setMaxFundingVelocity(0.03e18); // we want to see the funding rates in action for the viewer
+        controllerModProxy.setMaxFundingVelocity(0.03e18); // we want to see the funding rates in action for the viewer
 
-        setWethPrice(2200e8);
+        setCollateralPrice(2200e8);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -103,7 +95,7 @@ contract ViewerTest is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        setWethPrice(2500e8);
+        setCollateralPrice(2500e8);
 
         for (uint256 i = 0; i < 100; i++) {
             announceAndExecuteLeverageOpen({
@@ -116,7 +108,7 @@ contract ViewerTest is Setup, OrderHelpers {
             });
         }
 
-        setWethPrice(4000e8);
+        setCollateralPrice(4000e8);
 
         skip(1 days); // skewed short slightly, so funding rate should decrease over time
 
@@ -141,7 +133,7 @@ contract ViewerTest is Setup, OrderHelpers {
     }
 
     function test_viewer_flatcoin_tvl() public {
-        setWethPrice(2200e8);
+        setCollateralPrice(2200e8);
 
         uint256 depositAmount = 100e18;
         uint256 collateralPrice = 2200e8;
@@ -159,7 +151,7 @@ contract ViewerTest is Setup, OrderHelpers {
     }
 
     function test_viewer_market_skew_percentage_when_no_LP_and_no_leverage_positions() public {
-        setWethPrice(2200e8);
+        setCollateralPrice(2200e8);
 
         int256 marketSkewPercentage = viewer.getMarketSkewPercentage();
 
@@ -167,7 +159,7 @@ contract ViewerTest is Setup, OrderHelpers {
     }
 
     function test_viewer_market_skew_percentage_stable_skewed() public {
-        setWethPrice(2200e8);
+        setCollateralPrice(2200e8);
 
         uint256 collateralPrice = 2200e8;
         uint256 depositAmount = 52e18;
@@ -200,7 +192,7 @@ contract ViewerTest is Setup, OrderHelpers {
     }
 
     function test_viewer_market_skew_percentage_stable_skewed_fully() public {
-        setWethPrice(2200e8);
+        setCollateralPrice(2200e8);
 
         uint256 depositAmount = 100e18;
         uint256 collateralPrice = 2200e8;
@@ -219,10 +211,10 @@ contract ViewerTest is Setup, OrderHelpers {
     }
 
     function test_viewer_market_skew_percentage_long_skewed() public {
-        setWethPrice(2200e8);
+        setCollateralPrice(2200e8);
 
         vm.prank(admin);
-        leverageModProxy.setLeverageTradingFee(0); // ensure that the trading fees going to stable LPs don't impact the result
+        vaultProxy.setLeverageTradingFee(0); // ensure that the trading fees going to stable LPs don't impact the result
 
         uint256 collateralPrice = 2200e8;
         uint256 depositAmount = 48e18;
@@ -255,10 +247,10 @@ contract ViewerTest is Setup, OrderHelpers {
     }
 
     function test_viewer_market_skew_percentage_long_skewed_fully() public {
-        setWethPrice(2200e8);
+        setCollateralPrice(2200e8);
 
         vm.startPrank(admin);
-        leverageModProxy.setLeverageTradingFee(0); // ensure that the trading fees going to stable LPs don't impact the result
+        vaultProxy.setLeverageTradingFee(0); // ensure that the trading fees going to stable LPs don't impact the result
         vaultProxy.setSkewFractionMax(1.2e18);
 
         uint256 collateralPrice = 2200e8;
@@ -288,12 +280,12 @@ contract ViewerTest is Setup, OrderHelpers {
     }
 
     function test_viewer_market_skew_percentage_perfectly_hedged() public {
-        setWethPrice(2200e8);
+        setCollateralPrice(2200e8);
 
         // Disable trading fees so that they don't impact the results
         vm.startPrank(admin);
-        stableModProxy.setStableWithdrawFee(0);
-        leverageModProxy.setLeverageTradingFee(0);
+        vaultProxy.setStableWithdrawFee(0);
+        vaultProxy.setLeverageTradingFee(0);
 
         uint256 collateralPrice = 2200e8;
         uint256 depositAmount = 100e18;
@@ -322,7 +314,7 @@ contract ViewerTest is Setup, OrderHelpers {
     }
 
     function _checkPositionData(uint256 tokenFrom, uint256 tokenTo) internal view {
-        FlatcoinStructs.LeveragePositionData[] memory leveragePositions = viewer.getPositionData(tokenFrom, tokenTo);
+        ViewerStructs.LeveragePositionData[] memory leveragePositions = viewer.getPositionData(tokenFrom, tokenTo);
         for (uint256 i = 0; i < leveragePositions.length; i++) {
             uint256 tokenId = i + tokenFrom;
             assertEq(leveragePositions[i].tokenId, tokenId, "invalid tokenId burned token");

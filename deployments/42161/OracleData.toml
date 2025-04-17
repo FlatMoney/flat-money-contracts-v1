@@ -1,0 +1,9 @@
+[WBTC]
+address = "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f"
+chainlinkOracleContract = "0xd0C7101eACbB49F3deCcCc166d238410D6D46d57"
+pythPriceId = "0xc9d8b075a5c69303365ae23633d4e085199bf5c520a3b90fed1322a0342ffc33"
+chainlinkOracleMaxAge = 90_000
+pythMaxAge = 86_400
+pythPriceConfidenceRatio = 50
+maxDiffPercent = "10000000000000000"
+

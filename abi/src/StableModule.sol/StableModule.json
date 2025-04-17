@@ -123,17 +123,6 @@
     "type": "error"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "fee",
-        "type": "uint256"
-      }
-    ],
-    "name": "InvalidFee",
-    "type": "error"
-  },
-  {
     "inputs": [],
     "name": "InvalidInitialization",
     "type": "error"
@@ -179,6 +168,17 @@
       }
     ],
     "name": "OnlyOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "moduleKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "Paused",
     "type": "error"
   },
   {
@@ -364,6 +364,12 @@
         "internalType": "uint256",
         "name": "burnedAmount",
         "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "withdrawFee",
+        "type": "uint256"
       }
     ],
     "name": "Withdraw",
@@ -374,9 +380,9 @@
     "name": "MIN_LIQUIDITY",
     "outputs": [
       {
-        "internalType": "uint256",
+        "internalType": "uint32",
         "name": "",
-        "type": "uint256"
+        "type": "uint32"
       }
     ],
     "stateMutability": "view",
@@ -479,12 +485,12 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_account",
+        "name": "account_",
         "type": "address"
       },
       {
         "internalType": "uint64",
-        "name": "_executableAtTime",
+        "name": "executableAtTime_",
         "type": "uint64"
       },
       {
@@ -498,10 +504,15 @@
             "internalType": "uint256",
             "name": "minAmountOut",
             "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "announcedBy",
+            "type": "address"
           }
         ],
-        "internalType": "struct FlatcoinStructs.AnnouncedStableDeposit",
-        "name": "_announcedDeposit",
+        "internalType": "struct AnnouncedStableDeposit",
+        "name": "announcedDeposit_",
         "type": "tuple"
       }
     ],
@@ -514,12 +525,12 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_account",
+        "name": "account_",
         "type": "address"
       },
       {
         "internalType": "uint64",
-        "name": "_executableAtTime",
+        "name": "executableAtTime_",
         "type": "uint64"
       },
       {
@@ -535,8 +546,8 @@
             "type": "uint256"
           }
         ],
-        "internalType": "struct FlatcoinStructs.AnnouncedStableWithdraw",
-        "name": "_announcedWithdraw",
+        "internalType": "struct AnnouncedStableWithdraw",
+        "name": "announcedWithdraw_",
         "type": "tuple"
       }
     ],
@@ -544,12 +555,12 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "_amountOut",
+        "name": "amountOut_",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "_withdrawFee",
+        "name": "withdrawFee_",
         "type": "uint256"
       }
     ],
@@ -560,7 +571,7 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_account",
+        "name": "account_",
         "type": "address"
       }
     ],
@@ -568,7 +579,7 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "_amountLocked",
+        "name": "amountLocked_",
         "type": "uint256"
       }
     ],
@@ -579,13 +590,8 @@
     "inputs": [
       {
         "internalType": "contract IFlatcoinVault",
-        "name": "_vault",
+        "name": "vault_",
         "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_stableWithdrawFee",
-        "type": "uint256"
       }
     ],
     "name": "initialize",
@@ -597,12 +603,12 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_account",
+        "name": "account_",
         "type": "address"
       },
       {
         "internalType": "uint256",
-        "name": "_amount",
+        "name": "amount_",
         "type": "uint256"
       }
     ],
@@ -627,21 +633,8 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "_stableWithdrawFee",
-        "type": "uint256"
-      }
-    ],
-    "name": "setStableWithdrawFee",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "contract IFlatcoinVault",
-        "name": "_vault",
+        "name": "vault_",
         "type": "address"
       }
     ],
@@ -656,7 +649,7 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "_collateralPerShare",
+        "name": "collateralPerShare_",
         "type": "uint256"
       }
     ],
@@ -667,12 +660,12 @@
     "inputs": [
       {
         "internalType": "uint32",
-        "name": "_maxAge",
+        "name": "maxAge_",
         "type": "uint32"
       },
       {
         "internalType": "bool",
-        "name": "_priceDiffCheck",
+        "name": "priceDiffCheck_",
         "type": "bool"
       }
     ],
@@ -680,7 +673,7 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "_collateralPerShare",
+        "name": "collateralPerShare_",
         "type": "uint256"
       }
     ],
@@ -693,7 +686,7 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "_stableCollateralBalance",
+        "name": "stableCollateralBalance_",
         "type": "uint256"
       }
     ],
@@ -704,12 +697,12 @@
     "inputs": [
       {
         "internalType": "uint32",
-        "name": "_maxAge",
+        "name": "maxAge_",
         "type": "uint32"
       },
       {
         "internalType": "bool",
-        "name": "_priceDiffCheck",
+        "name": "priceDiffCheck_",
         "type": "bool"
       }
     ],
@@ -717,7 +710,7 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "_stableCollateralBalance",
+        "name": "stableCollateralBalance_",
         "type": "uint256"
       }
     ],
@@ -728,7 +721,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_depositAmount",
+        "name": "depositAmount_",
         "type": "uint256"
       }
     ],
@@ -736,20 +729,7 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "_amountOut",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "stableWithdrawFee",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
+        "name": "amountOut_",
         "type": "uint256"
       }
     ],
@@ -760,7 +740,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_withdrawAmount",
+        "name": "withdrawAmount_",
         "type": "uint256"
       }
     ],
@@ -768,7 +748,12 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "_amountOut",
+        "name": "amountOut_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "withdrawalFee_",
         "type": "uint256"
       }
     ],
@@ -858,12 +843,12 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_account",
+        "name": "account_",
         "type": "address"
       },
       {
         "internalType": "uint256",
-        "name": "_amount",
+        "name": "amount_",
         "type": "uint256"
       }
     ],

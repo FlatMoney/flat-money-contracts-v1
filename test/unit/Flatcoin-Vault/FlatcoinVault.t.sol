@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import "../../helpers/Setup.sol";
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
-import {FlatcoinErrors} from "../../../src/libraries/FlatcoinErrors.sol";
-import {FlatcoinStructs} from "../../../src/libraries/FlatcoinStructs.sol";
+import "../../helpers/OrderHelpers.sol";
 
 contract FlatcoinVaultTest is OrderHelpers, ExpectRevert {
     function test_revert_when_caller_not_owner() public {
@@ -15,21 +13,14 @@ contract FlatcoinVaultTest is OrderHelpers, ExpectRevert {
 
         _expectRevertWithCustomError({
             target: address(vaultProxy),
+            callData: abi.encodeWithSelector(vaultProxy.setLeverageTradingFee.selector, 0),
+            expectedErrorSignature: "OwnableUnauthorizedAccount(address)",
+            errorData: abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice)
+        });
+
+        _expectRevertWithCustomError({
+            target: address(vaultProxy),
             callData: abi.encodeWithSelector(vaultProxy.setSkewFractionMax.selector, 0),
-            expectedErrorSignature: "OwnableUnauthorizedAccount(address)",
-            errorData: abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice)
-        });
-
-        _expectRevertWithCustomError({
-            target: address(vaultProxy),
-            callData: abi.encodeWithSelector(vaultProxy.setMaxFundingVelocity.selector, 0),
-            expectedErrorSignature: "OwnableUnauthorizedAccount(address)",
-            errorData: abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice)
-        });
-
-        _expectRevertWithCustomError({
-            target: address(vaultProxy),
-            callData: abi.encodeWithSelector(vaultProxy.setMaxVelocitySkew.selector, 0),
             expectedErrorSignature: "OwnableUnauthorizedAccount(address)",
             errorData: abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice)
         });
@@ -41,15 +32,8 @@ contract FlatcoinVaultTest is OrderHelpers, ExpectRevert {
             errorData: abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice)
         });
 
-        _expectRevertWithCustomError({
-            target: address(vaultProxy),
-            callData: abi.encodeWithSelector(vaultProxy.setExecutabilityAge.selector, 0, 0),
-            expectedErrorSignature: "OwnableUnauthorizedAccount(address)",
-            errorData: abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice)
-        });
-
-        FlatcoinStructs.AuthorizedModule[] memory authorizedModules;
-        FlatcoinStructs.AuthorizedModule memory authorizedModule;
+        FlatcoinVaultStructs.AuthorizedModule[] memory authorizedModules;
+        FlatcoinVaultStructs.AuthorizedModule memory authorizedModule;
 
         _expectRevertWithCustomError({
             target: address(vaultProxy),
@@ -89,6 +73,18 @@ contract FlatcoinVaultTest is OrderHelpers, ExpectRevert {
         });
     }
 
+    function test_revert_when_wrong_leverage_trading_fee_value() public {
+        vm.startPrank(admin);
+
+        // 100% fee
+        _expectRevertWithCustomError({
+            target: address(vaultProxy),
+            callData: abi.encodeWithSelector(vaultProxy.setLeverageTradingFee.selector, 1.1e18),
+            expectedErrorSignature: "InvalidPercentageValue(uint64)",
+            errorData: abi.encodeWithSelector(ICommonErrors.InvalidPercentageValue.selector, 1.1e18)
+        });
+    }
+
     function test_revert_when_caller_not_authorized_module() public {
         vm.startPrank(alice);
 
@@ -96,95 +92,59 @@ contract FlatcoinVaultTest is OrderHelpers, ExpectRevert {
             target: address(vaultProxy),
             callData: abi.encodeWithSelector(vaultProxy.sendCollateral.selector, alice, 0),
             expectedErrorSignature: "OnlyAuthorizedModule(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyAuthorizedModule.selector, alice)
+            errorData: abi.encodeWithSelector(ICommonErrors.OnlyAuthorizedModule.selector, alice)
         });
 
         _expectRevertWithCustomError({
             target: address(vaultProxy),
             callData: abi.encodeWithSelector(vaultProxy.updateStableCollateralTotal.selector, 0),
             expectedErrorSignature: "OnlyAuthorizedModule(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyAuthorizedModule.selector, alice)
+            errorData: abi.encodeWithSelector(ICommonErrors.OnlyAuthorizedModule.selector, alice)
         });
 
-        FlatcoinStructs.Position memory position;
+        LeverageModuleStructs.Position memory position;
 
         _expectRevertWithCustomError({
             target: address(vaultProxy),
             callData: abi.encodeWithSelector(vaultProxy.setPosition.selector, position, 0),
             expectedErrorSignature: "OnlyAuthorizedModule(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyAuthorizedModule.selector, alice)
+            errorData: abi.encodeWithSelector(ICommonErrors.OnlyAuthorizedModule.selector, alice)
         });
 
         _expectRevertWithCustomError({
             target: address(vaultProxy),
             callData: abi.encodeWithSelector(vaultProxy.deletePosition.selector, 0),
             expectedErrorSignature: "OnlyAuthorizedModule(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyAuthorizedModule.selector, alice)
+            errorData: abi.encodeWithSelector(ICommonErrors.OnlyAuthorizedModule.selector, alice)
         });
 
         _expectRevertWithCustomError({
             target: address(vaultProxy),
             callData: abi.encodeWithSelector(vaultProxy.updateGlobalPositionData.selector, 0, 0, 0),
             expectedErrorSignature: "OnlyAuthorizedModule(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyAuthorizedModule.selector, alice)
-        });
-    }
-
-    function test_revert_when_wrong_skew_fraction_max_value() public {
-        vm.startPrank(admin);
-
-        _expectRevertWithCustomError({
-            target: address(vaultProxy),
-            callData: abi.encodeWithSelector(vaultProxy.setSkewFractionMax.selector, 0),
-            expectedErrorSignature: "InvalidSkewFractionMax(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.InvalidSkewFractionMax.selector, 0)
-        });
-
-        _expectRevertWithCustomError({
-            target: address(vaultProxy),
-            callData: abi.encodeWithSelector(vaultProxy.setSkewFractionMax.selector, 0.01e18),
-            expectedErrorSignature: "InvalidSkewFractionMax(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.InvalidSkewFractionMax.selector, 0.01e18)
-        });
-    }
-
-    function test_revert_when_wrong_max_velocity_skew_value() public {
-        vm.startPrank(admin);
-
-        _expectRevertWithCustomError({
-            target: address(vaultProxy),
-            callData: abi.encodeWithSelector(vaultProxy.setMaxVelocitySkew.selector, 0),
-            expectedErrorSignature: "InvalidMaxVelocitySkew(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.InvalidMaxVelocitySkew.selector, 0)
-        });
-
-        _expectRevertWithCustomError({
-            target: address(vaultProxy),
-            callData: abi.encodeWithSelector(vaultProxy.setMaxVelocitySkew.selector, 2e18),
-            expectedErrorSignature: "InvalidMaxVelocitySkew(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.InvalidMaxVelocitySkew.selector, 2e18)
+            errorData: abi.encodeWithSelector(ICommonErrors.OnlyAuthorizedModule.selector, alice)
         });
     }
 
     function test_revert_when_wrong_module_params() public {
         vm.startPrank(admin);
 
-        FlatcoinStructs.AuthorizedModule memory module;
+        FlatcoinVaultStructs.AuthorizedModule memory module;
 
         _expectRevertWithCustomError({
             target: address(vaultProxy),
             callData: abi.encodeWithSelector(vaultProxy.addAuthorizedModule.selector, module),
             expectedErrorSignature: "ZeroAddress(string)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.ZeroAddress.selector, "moduleAddress")
+            errorData: abi.encodeWithSelector(ICommonErrors.ZeroAddress.selector, "moduleAddress")
         });
 
-        module.moduleAddress = address(delayedOrderProxy);
+        module.moduleAddress = address(orderAnnouncementModProxy);
 
         _expectRevertWithCustomError({
             target: address(vaultProxy),
             callData: abi.encodeWithSelector(vaultProxy.addAuthorizedModule.selector, module),
             expectedErrorSignature: "ZeroValue(string)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.ZeroValue.selector, "moduleKey")
+            errorData: abi.encodeWithSelector(ICommonErrors.ZeroValue.selector, "moduleKey")
         });
 
         module.moduleKey = bytes32(uint256(1));
@@ -194,41 +154,7 @@ contract FlatcoinVaultTest is OrderHelpers, ExpectRevert {
             target: address(vaultProxy),
             callData: abi.encodeWithSelector(vaultProxy.addAuthorizedModule.selector, module),
             expectedErrorSignature: "ZeroAddress(string)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.ZeroAddress.selector, "moduleAddress")
-        });
-    }
-
-    function test_revert_when_executability_age_is_wrong() public {
-        vm.startPrank(admin);
-
-        _expectRevertWithCustomError({
-            target: address(vaultProxy),
-            callData: abi.encodeWithSelector(vaultProxy.setExecutabilityAge.selector, 0, 0),
-            expectedErrorSignature: "ZeroValue(string)",
-            errorData: abi.encodeWithSelector(
-                FlatcoinErrors.ZeroValue.selector,
-                "minExecutabilityAge|maxExecutabilityAge"
-            )
-        });
-
-        _expectRevertWithCustomError({
-            target: address(vaultProxy),
-            callData: abi.encodeWithSelector(vaultProxy.setExecutabilityAge.selector, 0, 1),
-            expectedErrorSignature: "ZeroValue(string)",
-            errorData: abi.encodeWithSelector(
-                FlatcoinErrors.ZeroValue.selector,
-                "minExecutabilityAge|maxExecutabilityAge"
-            )
-        });
-
-        _expectRevertWithCustomError({
-            target: address(vaultProxy),
-            callData: abi.encodeWithSelector(vaultProxy.setExecutabilityAge.selector, 1, 0),
-            expectedErrorSignature: "ZeroValue(string)",
-            errorData: abi.encodeWithSelector(
-                FlatcoinErrors.ZeroValue.selector,
-                "minExecutabilityAge|maxExecutabilityAge"
-            )
+            errorData: abi.encodeWithSelector(ICommonErrors.ZeroAddress.selector, "moduleAddress")
         });
     }
 
@@ -242,7 +168,7 @@ contract FlatcoinVaultTest is OrderHelpers, ExpectRevert {
         uint256 margin = additionalSize; // Effectively creating a 2x leverage position.
         uint256 collateralPrice = 1000e8;
 
-        setWethPrice(collateralPrice);
+        setCollateralPrice(collateralPrice);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -275,7 +201,7 @@ contract FlatcoinVaultTest is OrderHelpers, ExpectRevert {
         uint256 lpLiquidationPriceRiseMultiple = skewFractionMax / (skewFractionMax - 1e18);
         uint256 lpLiquidationPrice = collateralPrice * lpLiquidationPriceRiseMultiple + 10e8; // Adding a bit more to ensure fees and such factors are accounted for.
 
-        setWethPrice(lpLiquidationPrice);
+        setCollateralPrice(lpLiquidationPrice);
 
         announceAndExecuteLeverageClose({
             tokenId: tokenId1,
@@ -292,7 +218,7 @@ contract FlatcoinVaultTest is OrderHelpers, ExpectRevert {
                 (tokenId2, carol, keeper, lpLiquidationPrice, 0)
             ),
             expectedErrorSignature: "ValueNotPositive(string)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.ValueNotPositive.selector, "stableCollateralTotal")
+            errorData: abi.encodeWithSelector(ICommonErrors.ValueNotPositive.selector, "stableCollateralTotal")
         });
     }
 }

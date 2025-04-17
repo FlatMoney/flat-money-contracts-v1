@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
-import {Setup} from "../../helpers/Setup.sol";
+import "../../helpers/OrderHelpers.sol";
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
-import {FlatcoinStructs} from "src/libraries/FlatcoinStructs.sol";
-import {FlatcoinErrors} from "src/libraries/FlatcoinErrors.sol";
 
-import "forge-std/console2.sol";
-
-contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
+contract LongSkewMaxTest is OrderHelpers, ExpectRevert {
     function test_long_skew_max_announce_leverage() public {
         uint256 collateralPrice = 1000e8;
         uint256 stableDeposit = 100e18;
@@ -84,10 +79,14 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
             keeperFeeAmount: 0
         });
 
+        // We can only remove 20e18 worth of stable LP before the system reaches the max skew limit.
+        // Calculate the number of LP tokens to be burned to reach the max skew limit.
+        uint256 lpTokensToBurn = (20e18 * 1e18) / stableModProxy.stableCollateralPerShare();
+
         announceAndExecuteWithdraw({
             traderAccount: alice,
             keeperAccount: keeper,
-            withdrawAmount: 20e18,
+            withdrawAmount: lpTokensToBurn,
             oraclePrice: collateralPrice,
             keeperFeeAmount: keeperFee
         });
@@ -126,7 +125,8 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
             keeperFeeAmount: keeperFee
         });
 
-        announceStableWithdraw({traderAccount: alice, withdrawAmount: 15e18, keeperFeeAmount: keeperFee});
+        uint256 lpTokensToBurn = (15e18 * 1e18) / stableModProxy.stableCollateralPerShare();
+        announceStableWithdraw({traderAccount: alice, withdrawAmount: lpTokensToBurn, keeperFeeAmount: keeperFee});
 
         announceAndExecuteLeverageOpen({
             traderAccount: bob,
@@ -137,7 +137,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
             keeperFeeAmount: keeperFee
         });
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
         // Closing more stable LP makes the system reach the max skew limit and should revert
         _expectRevertWithCustomError({
@@ -181,15 +181,17 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
 
         announceOpenLeverage({traderAccount: bob, margin: 15e18, additionalSize: 15e18, keeperFeeAmount: keeperFee});
 
+        uint256 lpTokensToBurn = (15e18 * 1e18) / stableModProxy.stableCollateralPerShare();
+
         announceAndExecuteWithdraw({
             traderAccount: alice,
             keeperAccount: keeper,
-            withdrawAmount: 15e18,
+            withdrawAmount: lpTokensToBurn,
             oraclePrice: collateralPrice,
             keeperFeeAmount: keeperFee
         });
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
         // Opening further leverage makes the system reach the max skew limit and should revert
         _expectRevertWithCustomError({
@@ -213,7 +215,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
 
         // Set leverage trade fee to 1%
         vm.prank(vaultProxy.owner());
-        leverageModProxy.setLeverageTradingFee(0.01e18);
+        vaultProxy.setLeverageTradingFee(0.01e18);
 
         uint256 collateralPrice = 1000e8;
 
@@ -228,8 +230,10 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
 
         uint256 additionalSize = 121.5e18;
 
-        uint256 expectedSkewPercent = (additionalSize * 1e18) /
-            (depositAmount + ((additionalSize * leverageModProxy.leverageTradingFee()) / 1e18));
+        uint256 tradingFee = (additionalSize * vaultProxy.leverageTradingFee()) / 1e18;
+        uint256 protocolFee = (vaultProxy.protocolFeePercentage() * tradingFee) / 1e18;
+
+        uint256 expectedSkewPercent = (additionalSize * 1e18) / (depositAmount + tradingFee - protocolFee);
 
         // Check that the announce reverts on max skew
         _expectRevertWithCustomError({
@@ -242,7 +246,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
                 0
             ),
             expectedErrorSignature: "MaxSkewReached(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.MaxSkewReached.selector, expectedSkewPercent)
+            errorData: abi.encodeWithSelector(ICommonErrors.MaxSkewReached.selector, expectedSkewPercent)
         });
 
         // Check that the execute reverts on max skew by first decreasing the skew with a stable deposit
@@ -268,7 +272,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
             target: address(this),
             callData: abi.encodeWithSelector(OrderHelpers.executeOpenLeverage.selector, keeper, alice, collateralPrice),
             expectedErrorSignature: "MaxSkewReached(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.MaxSkewReached.selector, expectedSkewPercent)
+            errorData: abi.encodeWithSelector(ICommonErrors.MaxSkewReached.selector, expectedSkewPercent)
         });
     }
 
@@ -279,7 +283,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
 
         // Set leverage trade fee to 1%
         vm.prank(vaultProxy.owner());
-        leverageModProxy.setLeverageTradingFee(0.01e18);
+        vaultProxy.setLeverageTradingFee(0.01e18);
 
         uint256 collateralPrice = 1000e8;
 
@@ -303,9 +307,10 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
         });
 
         uint256 adjustSize = 21.5e18;
-
+        uint256 tradingFee = ((additionalSize + adjustSize) * vaultProxy.leverageTradingFee()) / 1e18;
+        uint256 protocolFee = (vaultProxy.protocolFeePercentage() * tradingFee) / 1e18;
         uint256 expectedSkewPercent = ((additionalSize + adjustSize) * 1e18) /
-            (depositAmount + (((additionalSize + adjustSize) * leverageModProxy.leverageTradingFee()) / 1e18));
+            (depositAmount + tradingFee - protocolFee);
 
         // Check that the announce reverts on max skew
         _expectRevertWithCustomError({
@@ -319,7 +324,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
                 0
             ),
             expectedErrorSignature: "MaxSkewReached(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.MaxSkewReached.selector, expectedSkewPercent)
+            errorData: abi.encodeWithSelector(ICommonErrors.MaxSkewReached.selector, expectedSkewPercent)
         });
 
         // Check that the execute reverts on max skew by first decreasing the skew with a stable deposit
@@ -356,7 +361,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
                 collateralPrice
             ),
             expectedErrorSignature: "MaxSkewReached(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.MaxSkewReached.selector, expectedSkewPercent)
+            errorData: abi.encodeWithSelector(ICommonErrors.MaxSkewReached.selector, expectedSkewPercent)
         });
     }
 
@@ -392,10 +397,14 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
             "Long skew fraction should be 1 after leverage open with size equal to stable deposit"
         );
 
-        // Announcing withdraw of 20e18 should revert because it would push the system over the max skew limit (1.25 > 1.2)
+        // We can only remove 20e18 worth of stable LP before the system reaches the max skew limit.
+        // Calculate the number of LP tokens to be burned to reach the max skew limit.
+        uint256 lpTokensToBurn = (20e18 * 1e18) / stableModProxy.stableCollateralPerShare();
+
+        // Announcing withdraw of 20e18 worth of LP tokens should revert because it would push the system over the max skew limit (1.25 > 1.2)
         _expectRevertWithCustomError({
             target: address(this),
-            callData: abi.encodeWithSelector(OrderHelpers.announceStableWithdraw.selector, alice, 20e18, 0),
+            callData: abi.encodeWithSelector(OrderHelpers.announceStableWithdraw.selector, alice, lpTokensToBurn, 0),
             expectedErrorSignature: "MaxSkewReached(uint256)",
             ignoreErrorArguments: true
         });
@@ -405,7 +414,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
         uint256 collateralPrice = 1000e8;
         uint256 stableDeposit = 100e18;
 
-        assertEq(vaultProxy.getVaultSummary().stableCollateralTotal, 0);
+        assertEq(vaultProxy.stableCollateralTotal(), 0);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -418,12 +427,12 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
         announceAndExecuteWithdraw({
             traderAccount: alice,
             keeperAccount: keeper,
-            withdrawAmount: stableDeposit,
+            withdrawAmount: stableModProxy.balanceOf(alice),
             oraclePrice: collateralPrice,
             keeperFeeAmount: 0
         });
 
-        assertEq(vaultProxy.getVaultSummary().stableCollateralTotal, 0);
+        assertEq(vaultProxy.stableCollateralTotal(), 0);
     }
 
     function test_long_skew_max_revert_when_no_stable_deposits() public {
@@ -431,7 +440,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
             target: address(this),
             callData: abi.encodeWithSelector(OrderHelpers.announceOpenLeverage.selector, alice, 100e18, 100e18, 0),
             expectedErrorSignature: "ZeroValue(string)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.ZeroValue.selector, "stableCollateralTotal")
+            errorData: abi.encodeWithSelector(ICommonErrors.ZeroValue.selector, "stableCollateralTotal")
         });
     }
 
@@ -442,7 +451,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
 
         // withdraw fee is 1%
         vm.prank(vaultProxy.owner());
-        stableModProxy.setStableWithdrawFee(0.01e18);
+        vaultProxy.setStableWithdrawFee(0.01e18);
 
         uint256 collateralPrice = 1000e8;
 
@@ -465,17 +474,25 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
             keeperFeeAmount: 0
         });
 
-        // Alice withdraws 19.9 collateral
-        uint256 withdrawAmount = 19.9e18;
-        uint256 expectedSkewPercent = (additionalSize * 1e18) /
-            (depositAmount - withdrawAmount + ((withdrawAmount * stableModProxy.stableWithdrawFee()) / 1e18));
+        // Alice withdraws 19.9e18 worth of stable LP tokens.
+        uint256 withdrawAmount = (19.9e18 * 1e18) / stableModProxy.stableCollateralPerShare();
+        uint256 expectedSkewPercent;
+        {
+            uint256 withdrawAmountInCollateral = 19.9e18;
+            uint256 withdrawFee = (withdrawAmountInCollateral * vaultProxy.stableWithdrawFee()) / 1e18;
+            uint256 protocolFee = (vaultProxy.protocolFeePercentage() * withdrawFee) / 1e18;
+
+            expectedSkewPercent =
+                (additionalSize * 1e18) /
+                (depositAmount - withdrawAmountInCollateral + (withdrawFee - protocolFee));
+        }
 
         // Check that the announce reverts on max skew
         _expectRevertWithCustomError({
             target: address(this),
-            callData: abi.encodeWithSelector(OrderHelpers.announceStableWithdraw.selector, alice, 19.9e18, 0),
+            callData: abi.encodeWithSelector(OrderHelpers.announceStableWithdraw.selector, alice, withdrawAmount, 0),
             expectedErrorSignature: "MaxSkewReached(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.MaxSkewReached.selector, expectedSkewPercent)
+            errorData: abi.encodeWithSelector(ICommonErrors.MaxSkewReached.selector, expectedSkewPercent)
         });
 
         // Check that the execute reverts on max skew by first decreasing the skew with a stable deposit
@@ -491,7 +508,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
 
         // Temporarily disable withdraw fee
         vm.prank(vaultProxy.owner());
-        stableModProxy.setStableWithdrawFee(0);
+        vaultProxy.setStableWithdrawFee(0);
 
         announceAndExecuteWithdraw({
             traderAccount: bob,
@@ -503,7 +520,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
 
         // Set withdraw fee to 1% again
         vm.prank(vaultProxy.owner());
-        stableModProxy.setStableWithdrawFee(0.01e18);
+        vaultProxy.setStableWithdrawFee(0.01e18);
 
         // Execute should revert with the same skew
         _expectRevertWithCustomError({
@@ -515,7 +532,7 @@ contract LongSkewMaxTest is Setup, OrderHelpers, ExpectRevert {
                 collateralPrice
             ),
             expectedErrorSignature: "MaxSkewReached(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.MaxSkewReached.selector, expectedSkewPercent)
+            errorData: abi.encodeWithSelector(ICommonErrors.MaxSkewReached.selector, expectedSkewPercent)
         });
     }
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {IPyth} from "pyth-sdk-solidity/IPyth.sol";
 
@@ -8,54 +8,42 @@ import "../../../helpers/OrderHelpers.sol";
 
 import "forge-std/console2.sol";
 
-contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
+contract GetFlatcoinPriceInUSDTest is OrderHelpers {
     function setUp() public override {
         super.setUp();
 
-        vm.startPrank(admin);
-
-        FlatcoinStructs.OnchainOracle memory onchainOracle = FlatcoinStructs.OnchainOracle(
-            wethChainlinkAggregatorV3,
-            type(uint32).max // Effectively disable oracle expiry.
-        );
-        FlatcoinStructs.OffchainOracle memory offchainOracle = FlatcoinStructs.OffchainOracle(
-            IPyth(address(mockPyth)),
-            0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace,
-            60, // max age of 60 seconds
-            1000
-        );
-
-        oracleModProxy.setAssetAndOracles({
-            _asset: address(WETH),
-            _onchainOracle: onchainOracle,
-            _offchainOracle: offchainOracle
-        });
+        disableChainlinkExpiry();
     }
 
     function test_viewer_flatcoin_price_in_usd_when_no_deposit() public {
-        setWethPrice(1e8);
+        setCollateralPrice(1e8);
 
         uint256 priceInUsd = viewer.getFlatcoinPriceInUSD();
         assertEq(priceInUsd, 1e18, "Incorrect price in USD when no deposits");
 
-        setWethPrice(4242e8);
+        setCollateralPrice(4242e8);
 
         priceInUsd = viewer.getFlatcoinPriceInUSD();
-        assertEq(priceInUsd, 4242e18, "Incorrect price in USD when no deposits");
+        assertEq(priceInUsd, (uint256(1e36) / 4242e18) * 4242, "Incorrect price in USD when no deposits");
 
-        setWethPrice(1_000_000_000e8);
+        setCollateralPrice(1_000_000_000e8);
 
         priceInUsd = viewer.getFlatcoinPriceInUSD();
-        assertEq(priceInUsd, 1_000_000_000e18, "Incorrect price in USD when no deposits");
+        assertEq(
+            priceInUsd,
+            1_000_000_000 * (uint256(1e36) / 1_000_000_000e18),
+            "Incorrect price in USD when no deposits"
+        );
     }
 
     function test_viewer_flatcoin_price_in_usd_when_single_deposit() public {
         vm.startPrank(alice);
 
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
 
         uint256 depositAmount = 100e18;
         uint256 collateralPrice = 1000e8;
+        uint256 collateralPerShareBefore = stableModProxy.stableCollateralPerShare();
 
         // First deposit mint doesn't use offchain oracle price
         announceAndExecuteDeposit({
@@ -67,26 +55,30 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
         });
 
         uint256 priceInUsd = viewer.getFlatcoinPriceInUSD();
-        assertEq(priceInUsd, 1000e18, "Incorrect price in USD when single deposit");
+        assertEq(priceInUsd, 1e18, "Incorrect price in USD when single deposit");
 
-        setWethPrice(4242e8);
-
-        priceInUsd = viewer.getFlatcoinPriceInUSD();
-        assertEq(priceInUsd, 4242e18, "Incorrect price in USD when single deposit");
-
-        setWethPrice(1_000_000_000e8);
+        setCollateralPrice(4242e8);
 
         priceInUsd = viewer.getFlatcoinPriceInUSD();
-        assertEq(priceInUsd, 1_000_000_000e18, "Incorrect price in USD when single deposit");
+        assertEq(priceInUsd, collateralPerShareBefore * uint256(4242), "Incorrect price in USD when single deposit");
+
+        setCollateralPrice(1_000_000_000e8);
+
+        priceInUsd = viewer.getFlatcoinPriceInUSD();
+        assertEq(
+            priceInUsd,
+            collateralPerShareBefore * uint256(1_000_000_000),
+            "Incorrect price in USD when single deposit"
+        );
     }
 
     function test_viewer_flatcoin_price_in_usd_when_no_market_skew() public {
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
 
         // Disable trading fees so that they don't impact the results
         vm.startPrank(admin);
-        stableModProxy.setStableWithdrawFee(0);
-        leverageModProxy.setLeverageTradingFee(0);
+        vaultProxy.setStableWithdrawFee(0);
+        vaultProxy.setLeverageTradingFee(0);
 
         vm.startPrank(alice);
 
@@ -109,18 +101,20 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
+        uint256 priceInUsdBefore = viewer.getFlatcoinPriceInUSD();
+
         // Enabling funding rate now that skew is anyway 0.
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0.03e18);
+        controllerModProxy.setMaxFundingVelocity(0.03e18);
 
         skip(2 days);
 
-        uint256 priceInUsd = viewer.getFlatcoinPriceInUSD();
-        assertEq(priceInUsd, 1000e18, "Incorrect price in USD when no market skew");
+        uint256 priceInUsdAfter = viewer.getFlatcoinPriceInUSD();
+        assertEq(priceInUsdAfter, priceInUsdBefore, "Incorrect price in USD when no market skew");
     }
 
     function test_viewer_flatcoin_price_in_usd_when_long_skewed_and_no_change_in_price() public {
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
 
         vm.startPrank(alice);
 
@@ -145,7 +139,7 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
 
         // Enabling funding rate.
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0.03e18);
+        controllerModProxy.setMaxFundingVelocity(0.03e18);
 
         uint256 priceInUsdBefore = viewer.getFlatcoinPriceInUSD();
 
@@ -163,7 +157,7 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
     }
 
     function test_viewer_flatcoin_price_in_usd_when_stable_skewed_and_no_change_in_price() public {
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
 
         vm.startPrank(alice);
 
@@ -188,7 +182,7 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
 
         // Enabling funding rate.
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0.03e18);
+        controllerModProxy.setMaxFundingVelocity(0.03e18);
 
         uint256 priceInUsdBefore = viewer.getFlatcoinPriceInUSD();
 
@@ -206,7 +200,7 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
     }
 
     function test_viewer_flatcoin_price_in_usd_when_long_skewed_and_price_increases() public {
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
 
         vm.startPrank(alice);
 
@@ -231,14 +225,14 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
 
         // Enabling funding rate.
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0.03e18);
+        controllerModProxy.setMaxFundingVelocity(0.03e18);
 
         uint256 priceInUsdBefore = viewer.getFlatcoinPriceInUSD();
 
         skip(2 days);
 
-        // WETH price has doubled.
-        setWethPrice(2000e8);
+        // collateralAsset price has doubled.
+        setCollateralPrice(2000e8);
 
         uint256 priceInUsdAfter = viewer.getFlatcoinPriceInUSD();
 
@@ -252,7 +246,7 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
     }
 
     function test_viewer_flatcoin_price_in_usd_when_long_skewed_and_price_decreases() public {
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
 
         vm.startPrank(alice);
 
@@ -277,14 +271,14 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
 
         // Enabling funding rate.
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0.03e18);
+        controllerModProxy.setMaxFundingVelocity(0.03e18);
 
         uint256 priceInUsdBefore = viewer.getFlatcoinPriceInUSD();
 
         skip(2 days);
 
-        // WETH price has reduced by 20%.
-        setWethPrice(800e8);
+        // collateralAsset price has reduced by 20%.
+        setCollateralPrice(800e8);
 
         uint256 priceInUsdAfter = viewer.getFlatcoinPriceInUSD();
 
@@ -298,7 +292,7 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
     }
 
     function test_viewer_flatcoin_price_in_usd_when_stable_skewed_and_price_increases() public {
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
 
         vm.startPrank(alice);
 
@@ -323,28 +317,28 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
 
         // Enabling funding rate.
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0.03e18);
+        controllerModProxy.setMaxFundingVelocity(0.03e18);
 
         uint256 priceInUsdBefore = viewer.getFlatcoinPriceInUSD();
 
         skip(2 days);
 
-        setWethPrice(2000e8);
+        setCollateralPrice(2000e8);
 
         uint256 priceInUsdAfter = viewer.getFlatcoinPriceInUSD();
 
-        // Since the market is stable skewed, the price of the WETH impacts the price
+        // Since the market is stable skewed, the price of the collateralAsset impacts the price
         // of the flatcoin. The price of the flatcoin should increase because of the direct correlation
-        // with the price of WETH. However, It won't be equal to the price of WETH because of the profits
+        // with the price of collateralAsset. However, It won't be equal to the price of collateralAsset because of the profits
         // gained by the longs and the funding fees paid by the LPs.
         assertTrue(
             priceInUsdAfter > priceInUsdBefore && priceInUsdAfter < 2000e18,
-            "Price in USD should have increased but not equal to WETH price"
+            "Price in USD should have increased but not equal to collateralAsset price"
         );
     }
 
     function test_viewer_flatcoin_price_in_usd_when_stable_skewed_and_price_decreases() public {
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
 
         vm.startPrank(alice);
 
@@ -369,24 +363,22 @@ contract GetFlatcoinPriceInUSDTest is Setup, OrderHelpers {
 
         // Enabling funding rate.
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0.03e18);
+        controllerModProxy.setMaxFundingVelocity(0.03e18);
 
         uint256 priceInUsdBefore = viewer.getFlatcoinPriceInUSD();
 
         skip(2 days);
 
         // Price has been reduced by 50%.
-        setWethPrice(500e8);
+        setCollateralPrice(500e8);
 
         uint256 priceInUsdAfter = viewer.getFlatcoinPriceInUSD();
 
-        // Since the market is stable skewed, the price of the WETH impacts the price
-        // of the flatcoin. The price of the flatcoin should decrease because of the direct correlation
-        // with the price of WETH. However, It won't be equal to the price of WETH because of the losses
-        // incurred by the longs.
+        // Since 50% of LP token is not hedged, the price of the flatcoin should decrease by 50% of the unbacked amount (so 25%).
+        // Also since the LPs are paying the longs, the price of the flatcoin should decrease even more than that.
         assertTrue(
-            priceInUsdAfter < priceInUsdBefore && priceInUsdAfter > 500e18,
-            "Flatcoin price should have decreased but not equal to WETH price"
+            priceInUsdAfter < priceInUsdBefore && priceInUsdAfter < 0.75e18,
+            "Flatcoin price should have decreased more than collateral price percentage decrease"
         );
     }
 }

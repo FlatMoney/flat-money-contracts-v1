@@ -1,60 +1,59 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
-import {FlatcoinErrors} from "../../../src/libraries/FlatcoinErrors.sol";
+
+import "../../helpers/OrderHelpers.sol";
 
 contract DelayedOrderTest is OrderHelpers, ExpectRevert {
     function test_revert_when_module_paused() public {
-        bytes32 moduleKey = delayedOrderProxy.MODULE_KEY();
-
-        vm.prank(admin);
-        vaultProxy.pauseModule(moduleKey);
+        vm.startPrank(admin);
+        vaultProxy.pauseModule(ORDER_ANNOUNCEMENT_MODULE_KEY);
+        vaultProxy.pauseModule(ORDER_EXECUTION_MODULE_KEY);
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceStableDeposit.selector,
+                orderAnnouncementModProxy.announceStableDeposit.selector,
                 0,
                 0,
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "Paused(bytes32)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.Paused.selector, moduleKey)
+            errorData: abi.encodeWithSelector(ModuleUpgradeable.Paused.selector, ORDER_ANNOUNCEMENT_MODULE_KEY)
         });
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceStableWithdraw.selector,
+                orderAnnouncementModProxy.announceStableWithdraw.selector,
                 0,
                 0,
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "Paused(bytes32)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.Paused.selector, moduleKey)
+            errorData: abi.encodeWithSelector(ModuleUpgradeable.Paused.selector, ORDER_ANNOUNCEMENT_MODULE_KEY)
         });
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceLeverageOpen.selector,
+                orderAnnouncementModProxy.announceLeverageOpen.selector,
                 0,
                 0,
                 0,
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "Paused(bytes32)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.Paused.selector, moduleKey)
+            errorData: abi.encodeWithSelector(ModuleUpgradeable.Paused.selector, ORDER_ANNOUNCEMENT_MODULE_KEY)
         });
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceLeverageAdjust.selector,
+                orderAnnouncementModProxy.announceLeverageAdjust.selector,
                 0,
                 0,
                 0,
@@ -62,33 +61,33 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "Paused(bytes32)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.Paused.selector, moduleKey)
+            errorData: abi.encodeWithSelector(ModuleUpgradeable.Paused.selector, ORDER_ANNOUNCEMENT_MODULE_KEY)
         });
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceLeverageClose.selector,
+                orderAnnouncementModProxy.announceLeverageClose.selector,
                 0,
                 0,
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "Paused(bytes32)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.Paused.selector, moduleKey)
+            errorData: abi.encodeWithSelector(ModuleUpgradeable.Paused.selector, ORDER_ANNOUNCEMENT_MODULE_KEY)
         });
 
         bytes[] memory emptyByteArray;
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderExecutionModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.executeOrder.selector,
+                orderExecutionModProxy.executeOrder.selector,
                 admin,
                 emptyByteArray,
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "Paused(bytes32)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.Paused.selector, moduleKey)
+            errorData: abi.encodeWithSelector(ModuleUpgradeable.Paused.selector, ORDER_EXECUTION_MODULE_KEY)
         });
     }
 
@@ -96,19 +95,21 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         uint256 depositAmount = 100;
         uint256 quotedAmount = stableModProxy.stableDepositQuote(depositAmount);
 
+        uint256 depositAmountUSD = (depositAmount * collateralAssetPrice) / (10 ** collateralAsset.decimals());
+
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceStableDeposit.selector,
+                orderAnnouncementModProxy.announceStableDeposit.selector,
                 depositAmount,
                 quotedAmount,
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "AmountTooSmall(uint256,uint256)",
             errorData: abi.encodeWithSelector(
-                FlatcoinErrors.AmountTooSmall.selector,
-                depositAmount,
-                delayedOrderProxy.MIN_DEPOSIT()
+                ICommonErrors.AmountTooSmall.selector,
+                depositAmountUSD,
+                orderAnnouncementModProxy.minDepositAmountUSD()
             )
         });
     }
@@ -116,18 +117,22 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
     function test_revert_announce_deposit_when_slippage_is_high() public {
         uint256 depositAmount = 0.1e18;
         uint256 quotedAmount = stableModProxy.stableDepositQuote(depositAmount);
-        uint256 minAmountOut = 1e18;
+        uint256 minAmountOut = quotedAmount * 2; // 2x the quoted amount
+
+        vm.startPrank(alice);
+
+        collateralAsset.approve(address(orderAnnouncementModProxy), depositAmount + mockKeeperFee.getKeeperFee());
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceStableDeposit.selector,
+                orderAnnouncementModProxy.announceStableDeposit.selector,
                 depositAmount,
                 minAmountOut,
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "HighSlippage(uint256,uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.HighSlippage.selector, quotedAmount, minAmountOut)
+            errorData: abi.encodeWithSelector(ICommonErrors.HighSlippage.selector, quotedAmount, minAmountOut)
         });
     }
 
@@ -137,15 +142,15 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         uint256 keeperFee = 0;
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceStableDeposit.selector,
+                orderAnnouncementModProxy.announceStableDeposit.selector,
                 depositAmount,
                 quotedAmount,
                 keeperFee
             ),
             expectedErrorSignature: "InvalidFee(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.InvalidFee.selector, keeperFee)
+            errorData: abi.encodeWithSelector(ICommonErrors.InvalidFee.selector, keeperFee)
         });
     }
 
@@ -154,21 +159,15 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         uint256 quotedAmount = stableModProxy.stableDepositQuote(depositAmount);
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
-        _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+        _expectRevertWith({
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceStableDeposit.selector,
+                orderAnnouncementModProxy.announceStableDeposit.selector,
                 depositAmount,
                 quotedAmount,
                 keeperFee
             ),
-            expectedErrorSignature: "ERC20InsufficientAllowance(address,uint256,uint256)",
-            errorData: abi.encodeWithSelector(
-                IERC20Errors.ERC20InsufficientAllowance.selector,
-                delayedOrderProxy,
-                0,
-                depositAmount + keeperFee
-            )
+            revertMessage: "ERC20: subtraction underflow"
         });
     }
 
@@ -179,20 +178,20 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         uint256 quotedAmount = stableModProxy.stableDepositQuote(depositAmount);
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
-        WETH.approve(address(delayedOrderProxy), (depositAmount + keeperFee) * 2);
+        collateralAsset.approve(address(orderAnnouncementModProxy), (depositAmount + keeperFee) * 2);
 
-        delayedOrderProxy.announceStableDeposit(depositAmount, quotedAmount, keeperFee);
+        orderAnnouncementModProxy.announceStableDeposit(depositAmount, quotedAmount, keeperFee);
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceStableDeposit.selector,
+                orderAnnouncementModProxy.announceStableDeposit.selector,
                 depositAmount,
                 quotedAmount,
                 keeperFee
             ),
             expectedErrorSignature: "OrderHasNotExpired()",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OrderHasNotExpired.selector)
+            errorData: abi.encodeWithSelector(OrderExecutionModule.OrderHasNotExpired.selector)
         });
     }
 
@@ -202,16 +201,16 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         uint256 withdrawAmount = 1e18;
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceStableWithdraw.selector,
+                orderAnnouncementModProxy.announceStableWithdraw.selector,
                 withdrawAmount,
                 0,
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "NotEnoughBalanceForWithdraw(address,uint256,uint256)",
             errorData: abi.encodeWithSelector(
-                FlatcoinErrors.NotEnoughBalanceForWithdraw.selector,
+                OrderAnnouncementModule.NotEnoughBalanceForWithdraw.selector,
                 alice,
                 0,
                 withdrawAmount
@@ -234,18 +233,19 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
 
         uint256 minAmountOut = 1e18;
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
-        uint256 quotedAmount = stableModProxy.stableWithdrawQuote(depositAmount) - keeperFee;
+        (uint256 expectedAmountOut, ) = stableModProxy.stableWithdrawQuote(depositAmount);
+        uint256 quotedAmount = expectedAmountOut - keeperFee;
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceStableWithdraw.selector,
+                orderAnnouncementModProxy.announceStableWithdraw.selector,
                 depositAmount,
                 minAmountOut,
                 keeperFee
             ),
             expectedErrorSignature: "HighSlippage(uint256,uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.HighSlippage.selector, quotedAmount, minAmountOut)
+            errorData: abi.encodeWithSelector(ICommonErrors.HighSlippage.selector, quotedAmount, minAmountOut)
         });
     }
 
@@ -264,9 +264,9 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         uint256 maxFillPrice = 900e18;
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceLeverageOpen.selector,
+                orderAnnouncementModProxy.announceLeverageOpen.selector,
                 depositAmount,
                 depositAmount,
                 maxFillPrice,
@@ -274,7 +274,7 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
             ),
             expectedErrorSignature: "MaxFillPriceTooLow(uint256,uint256)",
             errorData: abi.encodeWithSelector(
-                FlatcoinErrors.MaxFillPriceTooLow.selector,
+                OrderAnnouncementModule.MaxFillPriceTooLow.selector,
                 maxFillPrice,
                 currentPrice * 1e10
             )
@@ -300,9 +300,9 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         vm.startPrank(alice);
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceLeverageAdjust.selector,
+                orderAnnouncementModProxy.announceLeverageAdjust.selector,
                 tokenId,
                 depositAmount,
                 depositAmount,
@@ -311,7 +311,7 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
             ),
             expectedErrorSignature: "MaxFillPriceTooLow(uint256,uint256)",
             errorData: abi.encodeWithSelector(
-                FlatcoinErrors.MaxFillPriceTooLow.selector,
+                OrderAnnouncementModule.MaxFillPriceTooLow.selector,
                 fillPrice,
                 currentPrice * 1e10
             )
@@ -337,9 +337,9 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         vm.startPrank(alice);
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceLeverageAdjust.selector,
+                orderAnnouncementModProxy.announceLeverageAdjust.selector,
                 tokenId,
                 0,
                 -0.1e18,
@@ -348,7 +348,7 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
             ),
             expectedErrorSignature: "MinFillPriceTooHigh(uint256,uint256)",
             errorData: abi.encodeWithSelector(
-                FlatcoinErrors.MinFillPriceTooHigh.selector,
+                OrderAnnouncementModule.MinFillPriceTooHigh.selector,
                 fillPrice,
                 currentPrice * 1e10
             )
@@ -372,15 +372,15 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         vm.startPrank(bob);
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceLeverageClose.selector,
+                orderAnnouncementModProxy.announceLeverageClose.selector,
                 tokenId,
                 currentPrice,
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "NotTokenOwner(uint256,address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.NotTokenOwner.selector, tokenId, bob)
+            errorData: abi.encodeWithSelector(ICommonErrors.NotTokenOwner.selector, tokenId, bob)
         });
     }
 
@@ -403,16 +403,16 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         vm.startPrank(alice);
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceLeverageClose.selector,
+                orderAnnouncementModProxy.announceLeverageClose.selector,
                 tokenId,
                 fillPrice,
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "MinFillPriceTooHigh(uint256,uint256)",
             errorData: abi.encodeWithSelector(
-                FlatcoinErrors.MinFillPriceTooHigh.selector,
+                OrderAnnouncementModule.MinFillPriceTooHigh.selector,
                 fillPrice,
                 currentPrice * 1e10
             )
@@ -437,8 +437,8 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         bytes[] memory priceUpdateData = getPriceUpdateData(oraclePrice);
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
-            callData: abi.encodeWithSelector(delayedOrderProxy.executeOrder.selector, alice, priceUpdateData),
+            target: address(orderExecutionModProxy),
+            callData: abi.encodeWithSelector(orderExecutionModProxy.executeOrder.selector, alice, priceUpdateData),
             expectedErrorSignature: "ExecutableTimeNotReached(uint256)",
             ignoreErrorArguments: true,
             value: 1
@@ -465,8 +465,8 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         bytes[] memory priceUpdateData = getPriceUpdateData(oraclePrice);
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
-            callData: abi.encodeWithSelector(delayedOrderProxy.executeOrder.selector, alice, priceUpdateData),
+            target: address(orderExecutionModProxy),
+            callData: abi.encodeWithSelector(orderExecutionModProxy.executeOrder.selector, alice, priceUpdateData),
             expectedErrorSignature: "OrderHasExpired()",
             ignoreErrorArguments: true,
             value: 1
@@ -490,10 +490,10 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         bytes[] memory priceUpdateData = getPriceUpdateData(oraclePrice);
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
-            callData: abi.encodeWithSelector(delayedOrderProxy.executeOrder.selector, alice, priceUpdateData),
-            expectedErrorSignature: "DelayedOrderInvalid(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.DelayedOrderInvalid.selector, alice),
+            target: address(orderExecutionModProxy),
+            callData: abi.encodeWithSelector(orderExecutionModProxy.executeOrder.selector, alice, priceUpdateData),
+            expectedErrorSignature: "OrderInvalid(address)",
+            errorData: abi.encodeWithSelector(OrderExecutionModule.OrderInvalid.selector, alice),
             value: 1
         });
     }
@@ -505,11 +505,11 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         uint256 margin = 6e18;
         uint256 size = 60e18;
 
-        setWethPrice(collateralPrice);
+        setCollateralPrice(collateralPrice);
 
         vm.startPrank(admin);
 
-        vaultProxy.setMaxFundingVelocity(0.03e18);
+        controllerModProxy.setMaxFundingVelocity(0.03e18);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -540,14 +540,14 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         // due to funding fee settlements.
         skip(8 days);
 
-        setWethPrice(collateralPrice);
+        setCollateralPrice(collateralPrice);
 
-        vaultProxy.settleFundingFees();
+        controllerModProxy.settleFundingFees();
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceStableDeposit.selector,
+                orderAnnouncementModProxy.announceStableDeposit.selector,
                 5e18,
                 stableModProxy.stableDepositQuote(5e18),
                 mockKeeperFee.getKeeperFee()
@@ -556,12 +556,14 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
             ignoreErrorArguments: true
         });
 
+        (uint256 expectedAmountOut, ) = stableModProxy.stableWithdrawQuote(5e18);
+
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceStableWithdraw.selector,
+                orderAnnouncementModProxy.announceStableWithdraw.selector,
                 5e18,
-                stableModProxy.stableWithdrawQuote(5e18),
+                expectedAmountOut,
                 mockKeeperFee.getKeeperFee()
             ),
             expectedErrorSignature: "InsufficientGlobalMargin()",
@@ -569,9 +571,9 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         });
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceLeverageOpen.selector,
+                orderAnnouncementModProxy.announceLeverageOpen.selector,
                 5e18,
                 5e18,
                 collateralPrice,
@@ -582,9 +584,9 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         });
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceLeverageAdjust.selector,
+                orderAnnouncementModProxy.announceLeverageAdjust.selector,
                 tokenId,
                 5e18,
                 5e18,
@@ -596,9 +598,9 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
         });
 
         _expectRevertWithCustomError({
-            target: address(delayedOrderProxy),
+            target: address(orderAnnouncementModProxy),
             callData: abi.encodeWithSelector(
-                delayedOrderProxy.announceLeverageClose.selector,
+                orderAnnouncementModProxy.announceLeverageClose.selector,
                 tokenId,
                 collateralPrice,
                 mockKeeperFee.getKeeperFee()
@@ -606,5 +608,99 @@ contract DelayedOrderTest is OrderHelpers, ExpectRevert {
             expectedErrorSignature: "InsufficientGlobalMargin()",
             ignoreErrorArguments: true
         });
+    }
+
+    function test_revert_executabilityAgeSetters_when_not_owner() public {
+        vm.startPrank(alice);
+
+        _expectRevertWithCustomError({
+            target: address(orderAnnouncementModProxy),
+            callData: abi.encodeWithSelector(orderAnnouncementModProxy.setMinExecutabilityAge.selector, 1),
+            expectedErrorSignature: "OnlyOwner(address)",
+            ignoreErrorArguments: true
+        });
+
+        _expectRevertWithCustomError({
+            target: address(orderExecutionModProxy),
+            callData: abi.encodeWithSelector(orderExecutionModProxy.setMaxExecutabilityAge.selector, 1),
+            expectedErrorSignature: "OnlyOwner(address)",
+            ignoreErrorArguments: true
+        });
+    }
+
+    function test_revert_when_executability_age_is_wrong() public {
+        vm.startPrank(admin);
+
+        _expectRevertWithCustomError({
+            target: address(orderAnnouncementModProxy),
+            callData: abi.encodeWithSelector(orderAnnouncementModProxy.setMinExecutabilityAge.selector, 0),
+            expectedErrorSignature: "ZeroValue(string)",
+            errorData: abi.encodeWithSelector(ICommonErrors.ZeroValue.selector, "minExecutabilityAge")
+        });
+
+        _expectRevertWithCustomError({
+            target: address(orderExecutionModProxy),
+            callData: abi.encodeWithSelector(orderExecutionModProxy.setMaxExecutabilityAge.selector, 0),
+            expectedErrorSignature: "ZeroValue(string)",
+            errorData: abi.encodeWithSelector(ICommonErrors.ZeroValue.selector, "maxExecutabilityAge")
+        });
+    }
+
+    // This test is a PoC for the audit issue <https://github.com/sherlock-audit/2024-12-flat-money-v1-1-update-judging/issues/105>.
+    // This test checks that the last position in the system can be closed successfully.
+    // The bug found was that, due to rounding errors in the system, the last position could not be closed.
+    function test_exit_of_last_position() public {
+        uint256 collateralPrice = 1000e8;
+        uint256 stableDeposit = 50e18;
+
+        setCollateralPrice(collateralPrice);
+        vm.startPrank(admin);
+
+        controllerModProxy.setMaxFundingVelocity(0.03e18);
+
+        announceAndExecuteDeposit({
+            traderAccount: alice,
+            keeperAccount: keeper,
+            depositAmount: stableDeposit,
+            oraclePrice: collateralPrice,
+            keeperFeeAmount: 0
+        });
+
+        address[9] memory adrs;
+        uint256 n = 4;
+        uint256 size1 = 50.1e18;
+        uint256 size2 = 1.7e18;
+
+        adrs[1] = makeAddr("trader1");
+        adrs[2] = makeAddr("trader2");
+        adrs[3] = makeAddr("trader3");
+        adrs[4] = makeAddr("trader4");
+        adrs[5] = makeAddr("trader5");
+
+        for (uint256 i = 1; i <= n; i++) {
+            vm.startPrank(admin);
+            collateralAsset.transfer(adrs[i], 100e18);
+        }
+        for (uint256 i = 1; i <= n; i++) {
+            announceOpenLeverage(adrs[i], i == 1 ? size1 : size2, i == 1 ? size1 : size2, 0);
+        }
+        skip(10); // must reach minimum executability time
+
+        uint256[9] memory tokenIds;
+        for (uint256 i = 1; i <= n; i++) {
+            tokenIds[i] = executeOpenLeverage(keeper, adrs[i], collateralPrice);
+        }
+
+        skip(18);
+        setCollateralPrice(collateralPrice);
+
+        for (uint256 i = n; i >= 1; i--) {
+            announceCloseLeverage(adrs[i], tokenIds[i], 0);
+        }
+        skip(10); // must reach minimum executability time
+
+        for (uint256 i = n; i >= 1; i--) {
+            executeCloseLeverage(keeper, adrs[i], collateralPrice);
+        }
     }
 }

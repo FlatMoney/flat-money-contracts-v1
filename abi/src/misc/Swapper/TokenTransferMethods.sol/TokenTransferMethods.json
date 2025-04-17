@@ -1,0 +1,91 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "expectedAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "actualAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "AmountsAfterPermit2TransferMismatch",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidNativeTokenTransferEncoding",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NativeTokenSentWithoutNativeSwap",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "expectedAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "sentAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "NotEnoughNativeTokenSent",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum Permit2TransferType",
+        "name": "transferType",
+        "type": "uint8"
+      }
+    ],
+    "name": "UnsupportedPermit2Method",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "UnsupportedTokenTransferMethod",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "getPermit2Address",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "permit2Address_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getWrappedNativeToken",
+    "outputs": [
+      {
+        "internalType": "contract IWETH",
+        "name": "wrappedNativeToken_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

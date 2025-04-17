@@ -1,46 +1,31 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {Setup} from "../../helpers/Setup.sol";
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
 import "../../helpers/OrderHelpers.sol";
-import {FlatcoinErrors} from "src/libraries/FlatcoinErrors.sol";
+
 import "src/interfaces/IChainlinkAggregatorV3.sol";
 
 import "forge-std/console2.sol";
 
 // TODO: Break the this file into multiple files.
 
-contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
+contract FundingMathTest is OrderHelpers, ExpectRevert {
     function setUp() public override {
         super.setUp();
 
         vm.startPrank(admin);
 
-        vaultProxy.setMaxFundingVelocity(0.03e18);
+        controllerModProxy.setMaxFundingVelocity(0.03e18);
 
-        FlatcoinStructs.OnchainOracle memory onchainOracle = FlatcoinStructs.OnchainOracle(
-            wethChainlinkAggregatorV3,
-            type(uint32).max // Effectively disable oracle expiry.
-        );
-        FlatcoinStructs.OffchainOracle memory offchainOracle = FlatcoinStructs.OffchainOracle(
-            IPyth(address(mockPyth)),
-            0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace,
-            60, // max age of 60 seconds
-            1000
-        );
-
-        oracleModProxy.setAssetAndOracles({
-            _asset: address(WETH),
-            _onchainOracle: onchainOracle,
-            _offchainOracle: offchainOracle
-        });
+        disableChainlinkExpiry();
     }
 
     function test_pnl_no_price_change_long_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
 
@@ -60,12 +45,12 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
             oraclePrice: collateralPrice,
             keeperFeeAmount: 0
         });
-        // 70 ETH collateral, 70 ETH additional size (2x leverage)
+        // 70 ETH collateral, 75 ETH additional size
         uint256 tokenId2 = announceAndExecuteLeverageOpen({
             traderAccount: alice,
             keeperAccount: keeper,
             margin: 70e18,
-            additionalSize: 70e18,
+            additionalSize: 75e18,
             oraclePrice: collateralPrice,
             keeperFeeAmount: 0
         });
@@ -96,16 +81,16 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         // The amount received after closing the positions should be lesser than amount deposited as
         // margin due to losses from funding payments.
         assertLt(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - stableDeposit,
-            "Alice's should receive more than her total margin"
+            "Alice should receive more than her total margin"
         );
     }
 
     function test_pnl_no_price_change_short_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 200e18;
         uint256 collateralPrice = 1000e8;
 
@@ -161,7 +146,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         // The amount received after closing the positions should be greater than amount deposited as
         // collateral due to profit from funding payments.
         assertGt(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - stableDeposit,
             "Alice's should receive more than her total margin"
         );
@@ -170,7 +155,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
     function test_pnl_price_increase_long_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
 
@@ -190,25 +175,25 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
             oraclePrice: collateralPrice,
             keeperFeeAmount: 0
         });
-        // 70 ETH collateral, 70 ETH additional size (2x leverage)
+        // 70 ETH collateral, 75 ETH additional size
         uint256 tokenId2 = announceAndExecuteLeverageOpen({
             traderAccount: alice,
             keeperAccount: keeper,
             margin: 70e18,
-            additionalSize: 70e18,
+            additionalSize: 75e18,
             oraclePrice: collateralPrice,
             keeperFeeAmount: 0
         });
 
         // The price of ETH increases by 100%.
         uint256 newCollateralPrice = 2000e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         int256 pnl1 = leverageModProxy.getPositionSummary(tokenId).profitLoss;
         int256 pnl2 = leverageModProxy.getPositionSummary(tokenId2).profitLoss;
 
         assertEq(pnl1, 15e18, "PnL for position 1 is incorrect");
-        assertEq(pnl2, 35e18, "PnL for position 2 is incorrect");
+        assertEq(pnl2, 37.5e18, "PnL for position 2 is incorrect");
 
         skip(2 days);
 
@@ -233,7 +218,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         // The amount received after closing the positions should be lesser than margin deposited + profit from
         // price increase due to losses from funding payments.
         assertLt(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - stableDeposit + uint256(pnl1) + uint256(pnl2),
             "Alice should have profits after closing positions with price increase"
         );
@@ -242,7 +227,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
     function test_pnl_price_increase_short_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 200e18;
         uint256 collateralPrice = 1000e8;
 
@@ -274,7 +259,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
 
         // The price of ETH increases by 100%.
         uint256 newCollateralPrice = 2000e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         int256 pnl1 = leverageModProxy.getPositionSummary(tokenId).profitLoss;
         int256 pnl2 = leverageModProxy.getPositionSummary(tokenId2).profitLoss;
@@ -305,7 +290,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         // The amount received after closing the positions should be greater than margin deposited + profit from
         // price increase due to profits from funding payments.
         assertGt(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - stableDeposit + uint256(pnl1) + uint256(pnl2),
             "Alice should have profits after closing positions with price increase"
         );
@@ -314,7 +299,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
     function test_pnl_price_decrease() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
 
@@ -346,7 +331,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
 
         // The price of ETH decreases by 20%.
         uint256 newCollateralPrice = 800e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         int256 pnl1 = leverageModProxy.getPositionSummary(tokenId).profitLoss;
         int256 pnl2 = leverageModProxy.getPositionSummary(tokenId2).profitLoss;
@@ -377,7 +362,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
         assertApproxEqRel(
             uint256(int256(aliceBalanceBefore) - int256(stableDeposit) - int256(keeperFee) + pnl1 + pnl2),
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             0.0000001e18, // looks like a rounding error
             "Alice should have losses after closing positions with price increase"
         );
@@ -386,7 +371,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
     function test_accrued_funding_long_skew_price_increase() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         int256 stableDeposit = 100e18;
         int256 margin = 120e18;
         int256 additionalSize = 120e18;
@@ -411,21 +396,21 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
 
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - uint256(margin) - uint256(stableDeposit) - keeperFee,
             0.0000001e18 // looks like a rounding error
         ); // 100 deposit to stable LP, 120 deposit into 1 leveraged position
 
-        // Mock WETH Chainlink price to $2k (100% increase)
-        setWethPrice(2000e8);
+        // Mock collateralAsset Chainlink price to $2k (100% increase)
+        setCollateralPrice(2000e8);
 
         skip(2 days);
 
         // Leverage traders paid to the stable LPs.
         assertLt(leverageModProxy.getPositionSummary(tokenId).accruedFunding, 0, "Long trader gained funding fees");
         assertLt(
-            leverageModProxy.fundingAdjustedLongPnLTotal(),
-            leverageModProxy.getMarketSummary().profitLossTotalByLongs,
+            controllerModProxy.fundingAdjustedLongPnLTotal({maxAge_: type(uint32).max, priceDiffCheck_: false}),
+            viewer.getMarketSummary().profitLossTotalByLongs,
             "Longs gained funding fees"
         );
     }
@@ -433,7 +418,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
     function test_accrued_funding_long_skew_price_decrease() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         int256 stableDeposit = 100e18;
         int256 margin = 120e18;
         int256 additionalSize = 120e18;
@@ -458,21 +443,21 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
 
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - uint256(margin) - uint256(stableDeposit) - keeperFee,
             0.0000001e18 // looks like a rounding error
         ); // 100 deposit to stable LP, 120 deposit into 1 leveraged position
 
-        // Mock WETH Chainlink price to $800 (20% decrease)
-        setWethPrice(800e18);
+        // Mock collateralAsset Chainlink price to $800 (20% decrease)
+        setCollateralPrice(800e18);
 
         skip(2 days);
 
         // Leverage traders paid to the stable LPs due to skew towards the heavy side.
         assertLt(leverageModProxy.getPositionSummary(tokenId).accruedFunding, 0, "Long trader gained funding fees");
         assertLt(
-            leverageModProxy.fundingAdjustedLongPnLTotal(),
-            leverageModProxy.getMarketSummary().profitLossTotalByLongs,
+            controllerModProxy.fundingAdjustedLongPnLTotal({maxAge_: type(uint32).max, priceDiffCheck_: false}),
+            viewer.getMarketSummary().profitLossTotalByLongs,
             "Longs gained funding fees"
         );
     }
@@ -480,7 +465,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
     function test_accrued_funding_stable_skew_price_increase() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         int256 stableDeposit = 100e18;
         int256 margin = 40e18;
         int256 additionalSize = 40e18;
@@ -505,21 +490,21 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
 
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - uint256(margin) - uint256(stableDeposit) - keeperFee,
             0.0000001e18, // looks like a rounding error
             "Alice's balance incorrect"
         ); // 100 deposit to stable LP, 40 deposit into 1 leveraged position
 
-        // Mock WETH Chainlink price to $2k (100% increase)
-        setWethPrice(2000e8);
+        // Mock collateralAsset Chainlink price to $2k (100% increase)
+        setCollateralPrice(2000e8);
 
         skip(2 days);
 
         assertGt(leverageModProxy.getPositionSummary(tokenId).accruedFunding, 0, "Long trader gained funding fees");
         assertGt(
-            leverageModProxy.fundingAdjustedLongPnLTotal(),
-            leverageModProxy.getMarketSummary().profitLossTotalByLongs,
+            controllerModProxy.fundingAdjustedLongPnLTotal({maxAge_: type(uint32).max, priceDiffCheck_: false}),
+            viewer.getMarketSummary().profitLossTotalByLongs,
             "Longs gained funding fees"
         );
     }
@@ -527,7 +512,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
     function test_accrued_funding_stable_skew_price_decrease() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         int256 stableDeposit = 100e18;
         int256 margin = 40e18;
         int256 additionalSize = 40e18;
@@ -552,21 +537,21 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
 
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - uint256(margin) - uint256(stableDeposit) - keeperFee,
             0.0000001e18, // looks like a rounding error
             "Alice's balance incorrect"
         ); // 100 deposit to stable LP, 40 deposit into 1 leveraged position
 
-        // Mock WETH Chainlink price to $800 (20% decrease)
-        setWethPrice(800e8);
+        // Mock collateralAsset Chainlink price to $800 (20% decrease)
+        setCollateralPrice(800e8);
 
         skip(2 days);
 
         assertGt(leverageModProxy.getPositionSummary(tokenId).accruedFunding, 0, "Short trader gained funding fees");
         assertGt(
-            leverageModProxy.fundingAdjustedLongPnLTotal(),
-            leverageModProxy.getMarketSummary().profitLossTotalByLongs,
+            controllerModProxy.fundingAdjustedLongPnLTotal({maxAge_: type(uint32).max, priceDiffCheck_: false}),
+            viewer.getMarketSummary().profitLossTotalByLongs,
             "Shorts gained funding fees"
         );
     }
@@ -574,7 +559,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
     function test_accounting_accrued_fees_for_stable_shares_long_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         int256 stableDeposit = 100e18;
         int256 margin = 120e18;
         int256 additionalSize = 120e18;
@@ -602,7 +587,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
 
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - uint256(margin) - uint256(stableDeposit) - keeperFee,
             0.0000001e18, // looks like a rounding error
             "Alice's balance incorrect"
@@ -629,7 +614,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
     function test_accounting_accrued_fees_for_stable_shares_short_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         int256 stableDeposit = 100e18;
         int256 margin = 40e18;
         int256 additionalSize = 40e18;
@@ -657,7 +642,7 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
 
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - uint256(margin) - uint256(stableDeposit) - keeperFee,
             0.0000001e18, // looks like a rounding error
             "Alice's balance incorrect"
@@ -681,9 +666,8 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         assertLt(aliceLiquidityMinted, bobLiquidityMinted, "Alice's liquidity minted should be greater than Bob's");
     }
 
-    // TODO: Revisit the test assertions.
     function test_current_funding_rate_when_market_prefectly_hedged() public {
-        uint256 stableDeposit = 100e18;
+        uint256 stableDeposit = 10000e18;
         uint256 collateralPrice = 1000e8;
 
         // Creating a leverage position with leverage ratio 3x.
@@ -692,34 +676,37 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
             traderAccount: alice,
             keeperAccount: keeper,
             depositAmount: stableDeposit,
-            margin: 50e18,
-            additionalSize: 100e18,
+            margin: 5000e18,
+            additionalSize: 10000e18,
             oraclePrice: collateralPrice,
             keeperFeeAmount: 0
         });
 
-        int256 currentFundingRateBefore = vaultProxy.getCurrentFundingRate();
+        int256 currentFundingRateBefore = controllerModProxy.currentFundingRate();
 
         // The price of ETH increases by 100%.
         uint256 newCollateralPrice = 2000e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         skip(2 days);
+
+        uint256 minDepositAmount = getQuoteFromDollarAmount(
+            orderAnnouncementModProxy.minDepositAmountUSD(),
+            collateralAsset
+        );
 
         announceAndExecuteDeposit({
             traderAccount: alice,
             keeperAccount: keeper,
-            depositAmount: 1e6,
+            depositAmount: minDepositAmount,
             oraclePrice: newCollateralPrice,
             keeperFeeAmount: 0
         });
 
-        skip(1 days);
-
         // The recomputed funding rate shouldn't be too different from the funding rate before the latest stable deposit.
         // We don't want big jumps happening due to small deposits.
         assertApproxEqAbs(
-            vaultProxy.getCurrentFundingRate(),
+            controllerModProxy.currentFundingRate(),
             currentFundingRateBefore,
             1e6,
             "Funding rate shouldn't change"
@@ -736,14 +723,16 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         // Set funding velocity to 0 so that the funding rate is not affected in the beginning
         // this means that the funding will be 0 and skew will be 0 for the initial perfect hedge
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0);
+        controllerModProxy.setMaxFundingVelocity(0);
         // Disable trading fees so that they don't impact the tests
-        stableModProxy.setStableWithdrawFee(0);
-        leverageModProxy.setLeverageTradingFee(0);
+        vaultProxy.setStableWithdrawFee(0);
+        vaultProxy.setLeverageTradingFee(0);
 
         vm.startPrank(alice);
 
-        setWethPrice(2000e8);
+        setCollateralPrice(2000e8);
+
+        uint256 collateralPerShareBeforeDeposit = stableModProxy.stableCollateralPerShare();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -763,11 +752,15 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         });
 
         // Skew = 0
-        FlatcoinStructs.PositionSummary memory positionSummary = leverageModProxy.getPositionSummary(tokenId1);
-        FlatcoinStructs.VaultSummary memory vaultSummary = vaultProxy.getVaultSummary();
+        LeverageModuleStructs.PositionSummary memory positionSummary = leverageModProxy.getPositionSummary(tokenId1);
+        FlatcoinVaultStructs.VaultSummary memory vaultSummary = viewer.getVaultSummary();
         assertEq(vaultSummary.marketSkew, 0, "Market skew should be 0");
-        assertEq(vaultProxy.getCurrentFundingRate(), 0, "Initial funding rate should be 0");
-        assertEq(stableModProxy.stableCollateralPerShare(), 1e18, "Initial stable collateral per share should be 1e18");
+        assertEq(controllerModProxy.currentFundingRate(), 0, "Initial funding rate should be 0");
+        assertEq(
+            stableModProxy.stableCollateralPerShare(),
+            1e36 / 2000e18,
+            "Initial stable collateral per share incorrect"
+        );
         assertEq(positionSummary.accruedFunding, 0, "Initial position accrued funding should be 0");
         assertEq(positionSummary.profitLoss, 0, "Initial position profit loss should be 0");
         assertEq(
@@ -780,12 +773,12 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
 
         // Nothing should change because skew = 0
         positionSummary = leverageModProxy.getPositionSummary(tokenId1);
-        vaultSummary = vaultProxy.getVaultSummary();
+        vaultSummary = viewer.getVaultSummary();
         assertEq(vaultSummary.marketSkew, 0, "Market skew should be 0");
-        assertEq(vaultProxy.getCurrentFundingRate(), 0, "Funding rate should be 0 after 1 day");
+        assertEq(controllerModProxy.currentFundingRate(), 0, "Funding rate should be 0 after 1 day");
         assertEq(
             stableModProxy.stableCollateralPerShare(),
-            1e18,
+            collateralPerShareBeforeDeposit,
             "Stable collateral per share shouldn't change after 1 day"
         );
         assertEq(positionSummary.accruedFunding, 0, "Initial position accrued funding should be 0 after 1 day");
@@ -797,8 +790,8 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         );
 
         // now that the system is perfectly hedged, let's check the funding math
-        vm.prank(admin);
-        vaultProxy.setMaxFundingVelocity(0.003e18); // 0.3% per day
+        vm.startPrank(admin);
+        controllerModProxy.setMaxFundingVelocity(0.003e18); // 0.3% per day
 
         // Skew towards longs 10%
         uint256 tokenId2 = announceAndExecuteLeverageOpen({
@@ -810,21 +803,21 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
             keeperFeeAmount: 0
         });
 
-        assertEq(vaultProxy.getCurrentFundingRate(), 0, "Incorrect funding rate immediately after skew change");
-        vaultSummary = vaultProxy.getVaultSummary();
+        assertEq(controllerModProxy.currentFundingRate(), 0, "Incorrect funding rate immediately after skew change");
+        vaultSummary = viewer.getVaultSummary();
         assertEq(vaultSummary.marketSkew, 10e18, "Market skew should be 10e18 immediately after skew change");
 
         skip(1 days);
-        vaultSummary = vaultProxy.getVaultSummary();
+        vaultSummary = viewer.getVaultSummary();
         assertEq(vaultSummary.marketSkew, 10e18, "Market skew should be 10e18 after 1 day skew");
-        assertEq(vaultProxy.getCurrentFundingRate(), 0.003e18, "Incorrect funding rate after 1 day skew");
+        assertEq(controllerModProxy.currentFundingRate(), 0.003e18, "Incorrect funding rate after 1 day skew");
         positionSummary = leverageModProxy.getPositionSummary(tokenId2);
         assertEq(
             (positionSummary.accruedFunding * -1) / 10, // divide by the size
-            vaultProxy.getCurrentFundingRate() / 2,
+            controllerModProxy.currentFundingRate() / 2,
             "Incorrect accrued funding after 1 day skew"
         );
-        uint256 traderWethBalanceBefore = WETH.balanceOf(alice);
+        uint256 traderCollateralBalanceBefore = collateralAsset.balanceOf(alice);
 
         announceAndExecuteLeverageClose({
             tokenId: tokenId2,
@@ -839,13 +832,13 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
             uint256 keeperFee = mockKeeperFee.getKeeperFee();
 
             assertApproxEqRel(
-                (WETH.balanceOf(alice) - traderWethBalanceBefore), // check the returned balance to trader
+                (collateralAsset.balanceOf(alice) - traderCollateralBalanceBefore), // check the returned balance to trader
                 10e18 - // initial deposit
                     uint256(accruedFunding * -1) - // subtract the lost funding before the position closure
                     keeperFee - // subtract the keeper fee
-                    (((vaultProxy.minExecutabilityAge() * 0.003e18) / 86_400) * 10), // subtract the additional lost funding after the delayed position closure
+                    (((orderAnnouncementModProxy.minExecutabilityAge() * 0.003e18) / 86_400) * 10), // subtract the additional lost funding after the delayed position closure
                 0.0000002e18, // looks like a rounding error
-                "Trader didn't get correct amount of WETH after close"
+                "Trader didn't get correct amount of collateralAsset after close"
             );
         }
 
@@ -866,26 +859,26 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         });
 
         assertApproxEqAbs(
-            WETH.balanceOf(alice),
-            100_000e18 - 0.006e18, // account for 6 keeper fees of 0.001e18
+            collateralAsset.balanceOf(alice),
+            100_000e18 - 6 * mockKeeperFee.getKeeperFee(),
             1e6,
-            "Trader didn't get all her WETH back after closing everything"
+            "Trader didn't get all her collateralAsset back after closing everything"
         );
     }
 
     function test_funding_rate_unaffected_by_market_size() public {
         // The funding rate should only be affected by the skew, not total collateral market size
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0);
+        controllerModProxy.setMaxFundingVelocity(0);
         // Disable trading fees so that they don't impact the tests
-        stableModProxy.setStableWithdrawFee(0);
-        leverageModProxy.setLeverageTradingFee(0);
+        vaultProxy.setStableWithdrawFee(0);
+        vaultProxy.setLeverageTradingFee(0);
 
         vm.startPrank(alice);
 
-        setWethPrice(2000e8);
+        setCollateralPrice(2000e8);
 
-        uint256 snapshot = vm.snapshot();
+        uint256 snapshot = vm.snapshotState();
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -904,16 +897,16 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
             keeperFeeAmount: 0
         });
 
-        vm.prank(admin);
-        vaultProxy.setMaxFundingVelocity(0.003e18); // 0.3% per day
+        vm.startPrank(admin);
+        controllerModProxy.setMaxFundingVelocity(0.003e18); // 0.3% per day
 
         skip(1 days);
 
-        FlatcoinStructs.VaultSummary memory vaultSummary = vaultProxy.getVaultSummary();
+        FlatcoinVaultStructs.VaultSummary memory vaultSummary = viewer.getVaultSummary();
         assertEq(vaultSummary.marketSkew, 10e18, "Market should be skewed 10% long (initial market size)");
-        assertEq(vaultProxy.getCurrentFundingRate(), 0.003e18, "Incorrect funding rate (initial market size)"); // 0.3% with 10% skew
+        assertEq(controllerModProxy.currentFundingRate(), 0.003e18, "Incorrect funding rate (initial market size)"); // 0.3% with 10% skew
 
-        vm.revertTo(snapshot);
+        vm.revertToState(snapshot);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -933,17 +926,18 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         });
 
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0.003e18);
-        vaultProxy.setExecutabilityAge(1, 60); // minimum delay to keep the accrued funding close to being round and clean
+        controllerModProxy.setMaxFundingVelocity(0.003e18);
+        orderAnnouncementModProxy.setMinExecutabilityAge(1); // minimum delay to keep the accrued funding close to being round and clean
+        orderExecutionModProxy.setMaxExecutabilityAge(60);
         vm.startPrank(alice);
 
         skip(1 days);
 
-        vaultSummary = vaultProxy.getVaultSummary();
+        vaultSummary = viewer.getVaultSummary();
         assertEq(vaultSummary.marketSkew, 100e18, "Market should be skewed 10% long (bigger market size)");
-        assertEq(vaultProxy.getCurrentFundingRate(), 0.003e18, "Incorrect funding rate (bigger market size)");
+        assertEq(controllerModProxy.currentFundingRate(), 0.003e18, "Incorrect funding rate (bigger market size)");
 
-        uint256 aliceWethBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBefore = collateralAsset.balanceOf(alice);
 
         skip(1 days);
 
@@ -956,22 +950,22 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
             keeperFeeAmount: 0
         });
 
-        uint256 aliceWethReceived = WETH.balanceOf(alice) - aliceWethBefore;
+        uint256 aliceCollateralReceived = collateralAsset.balanceOf(alice) - aliceCollateralBefore;
 
         assertEq(vaultSummary.marketSkew, 100e18, "Market should be skewed 10% long (bigger market size)");
         assertApproxEqRel(
-            vaultProxy.getCurrentFundingRate(),
+            controllerModProxy.currentFundingRate(),
             0.006e18,
             1e13,
             "Incorrect funding rate (bigger market size)"
         );
         assertApproxEqRel(
-            aliceWethReceived,
+            aliceCollateralReceived,
             1000e18 -
                 (1100 * 0.006e18) - // ~0.6% funding paid
                 mockKeeperFee.getKeeperFee(),
             1e13,
-            "Alice's WETH received is incorrect"
+            "Alice's collateralAsset received is incorrect"
         );
     }
 
@@ -979,14 +973,14 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
     function test_funding_rate_skew_change() public {
         // The funding rate should only be affected by the skew, not total collateral market size
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0);
+        controllerModProxy.setMaxFundingVelocity(0);
         // Disable trading fees so that they don't impact the tests
-        stableModProxy.setStableWithdrawFee(0);
-        leverageModProxy.setLeverageTradingFee(0);
+        vaultProxy.setStableWithdrawFee(0);
+        vaultProxy.setLeverageTradingFee(0);
 
         vm.startPrank(alice);
 
-        setWethPrice(2000e8);
+        setCollateralPrice(2000e8);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -1005,11 +999,11 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
             keeperFeeAmount: 0
         });
 
-        vm.prank(admin);
-        vaultProxy.setMaxFundingVelocity(0.003e18); // 0.3% per day
+        vm.startPrank(admin);
+        controllerModProxy.setMaxFundingVelocity(0.003e18); // 0.3% per day
 
-        int256 currentSkewBefore = vaultProxy.getCurrentSkew();
-        int256 skewBefore = vaultProxy.getVaultSummary().marketSkew;
+        int256 currentSkewBefore = controllerModProxy.getCurrentSkew();
+        int256 skewBefore = viewer.getVaultSummary().marketSkew;
         int256 skewPercentageBefore = viewer.getMarketSkewPercentage();
 
         _expectRevertWithCustomError({
@@ -1025,24 +1019,24 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
 
         // Should be able to open a position because funding closes the skew
         {
-            uint256 snapshot = vm.snapshot();
+            uint256 snapshot = vm.snapshotState();
             announceOpenLeverage({traderAccount: alice, margin: 0.1e18, additionalSize: 0.1e18, keeperFeeAmount: 0});
-            vm.revertTo(snapshot);
+            vm.revertToState(snapshot);
         }
 
-        int256 currentSkewAfter = vaultProxy.getCurrentSkew();
-        int256 skewAfter = vaultProxy.getVaultSummary().marketSkew;
+        int256 currentSkewAfter = controllerModProxy.getCurrentSkew();
+        int256 skewAfter = viewer.getVaultSummary().marketSkew;
         int256 skewPercentageAfter = viewer.getMarketSkewPercentage();
 
         assertLt(currentSkewAfter, currentSkewBefore, "Current skew should decrease over time");
         assertLt(skewPercentageAfter, skewPercentageBefore, "Skew percentage should decrease over time");
         assertLt(currentSkewAfter, skewAfter, "Current skew should be lower than market skew over time");
 
-        vaultProxy.settleFundingFees();
+        controllerModProxy.settleFundingFees();
 
         assertApproxEqAbs(
             currentSkewAfter,
-            vaultProxy.getVaultSummary().marketSkew,
+            viewer.getVaultSummary().marketSkew,
             1, // account for rounding adjustment
             "Market skew should be updated after settlement"
         );
@@ -1053,9 +1047,9 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
     // The system should be able to resume when the positions which are underwater are liquidated.
     // Meaning, when all positions are liquidated the LPs should be able to redeem their shares.
     function test_accounting_global_margin_depleted_due_to_funding() public {
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -1075,28 +1069,31 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         });
 
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0.006e18);
-        vaultProxy.setMaxVelocitySkew(0.2e18);
+        controllerModProxy.setMaxFundingVelocity(0.006e18);
+        controllerModProxy.setMaxVelocitySkew(0.2e18);
 
         // Note that the amount of days to be skipped has been chosen arbitrarily.
         skip(15 days);
 
-        vaultProxy.settleFundingFees();
+        controllerModProxy.settleFundingFees();
 
         uint256 stableCollateralTotal = vaultProxy.stableCollateralTotal();
         int256 globalMargin = vaultProxy.getGlobalPositions().marginDepositedTotal;
 
         assertEq(
             globalMargin + int256(stableCollateralTotal),
-            int256(WETH.balanceOf(address(vaultProxy))),
-            "Sum of global margin and stable collateral should be equal to the total WETH balance of the vault"
+            int256(collateralAsset.balanceOf(address(vaultProxy))),
+            "Sum of global margin and stable collateral should be equal to the total collateralAsset balance of the vault"
         );
 
         // Liquidate the bad position to enable full withdrawal of stable collateral.
         // This should correctly reverse the funding fee payments to the LPs.
-        setWethPrice(1000e8); // `liquidate` needs a price within the last 24h
+        setCollateralPrice(1000e8); // `liquidate` needs a price within the last 24h
         vm.startPrank(liquidator);
-        liquidationModProxy.liquidate(tokenId);
+
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = tokenId;
+        liquidationModProxy.liquidate(tokenIds);
 
         // Let's try to redeem all the stable collateral from the vault.
         announceAndExecuteWithdraw({
@@ -1108,16 +1105,16 @@ contract FundingMathTest is Setup, OrderHelpers, ExpectRevert {
         });
 
         assertApproxEqAbs(
-            WETH.balanceOf(address(vaultProxy)),
+            collateralAsset.balanceOf(address(vaultProxy)),
             0,
-            10,
-            "Vault should have no WETH balance after withdrawal"
+            1e6,
+            "Vault should have no collateralAsset balance after withdrawal"
         );
         assertApproxEqAbs(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore + 1e18 - (mockKeeperFee.getKeeperFee() * 2),
-            10,
-            "Alice should have received all her WETH + margin of Bob's position"
+            1e6,
+            "Alice should have received all her collateralAsset + margin of Bob's position"
         );
     }
 }

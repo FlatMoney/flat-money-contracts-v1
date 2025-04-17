@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
 interface IKeeperFee {
     function getKeeperFee() external view returns (uint256 keeperFee);
@@ -10,7 +10,6 @@ interface IKeeperFee {
         external
         view
         returns (
-            uint256 profitMarginUSD,
             uint256 profitMarginPercent,
             uint256 minKeeperFeeUpperBound,
             uint256 minKeeperFeeLowerBound,
@@ -19,4 +18,6 @@ interface IKeeperFee {
         );
 
     function setParameters(uint256 keeperFeeUpperBound, uint256 keeperFeeLowerBound) external;
+
+    function setKeeperFee(uint256 keeperFee) external;
 }

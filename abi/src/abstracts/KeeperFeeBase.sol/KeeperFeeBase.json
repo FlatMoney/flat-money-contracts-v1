@@ -1,0 +1,284 @@
+[
+  {
+    "inputs": [],
+    "name": "ETHPriceInvalid",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ETHPriceStale",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fee",
+        "type": "uint256"
+      }
+    ],
+    "name": "InvalidFee",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "variableName",
+        "type": "string"
+      }
+    ],
+    "name": "ZeroAddress",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "variableName",
+        "type": "string"
+      }
+    ],
+    "name": "ZeroValue",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "MODULE_KEY",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getConfig",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "gasPriceOracle_",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "profitMarginPercent_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "keeperFeeUpperBound_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "keeperFeeLowerBound_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "gasUnitsL1_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "gasUnitsL2_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "stalenessPeriod_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getKeeperFee",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "keeperFeeCollateral_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "baseFee",
+        "type": "uint256"
+      }
+    ],
+    "name": "getKeeperFee",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "keeperFeeCollateral_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "gasPriceOracle_",
+        "type": "address"
+      }
+    ],
+    "name": "setGasPriceOracle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "keeperFeeUpperBound_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "keeperFeeLowerBound_",
+        "type": "uint256"
+      }
+    ],
+    "name": "setParameters",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "profitMarginPercent_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "keeperFeeUpperBound_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "keeperFeeLowerBound_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "gasUnitsL1_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "gasUnitsL2_",
+        "type": "uint256"
+      }
+    ],
+    "name": "setParameters",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "stalenessPeriod_",
+        "type": "uint256"
+      }
+    ],
+    "name": "setStalenessPeriod",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]

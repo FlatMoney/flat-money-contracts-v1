@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {Setup} from "../../helpers/Setup.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
+import "../../helpers/OrderHelpers.sol";
 
 import "forge-std/console2.sol";
 
-contract AnnounceExecuteDepositTest is Setup, OrderHelpers {
+contract AnnounceExecuteDepositTest is OrderHelpers {
     function test_deposits() public {
         // First deposit mint doesn't use offchain oracle price
         announceAndExecuteDeposit({

@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {FlatcoinVault} from "../../../src/FlatcoinVault.sol";
 import {Setup} from "../../helpers/Setup.sol";
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
-import {FlatcoinErrors} from "src/libraries/FlatcoinErrors.sol";
+import "../../helpers/OrderHelpers.sol";
 
 import "forge-std/console2.sol";
 
-contract StableCollateralCapTest is Setup, OrderHelpers, ExpectRevert {
+contract StableCollateralCapTest is OrderHelpers, ExpectRevert {
     function test_stable_collateral_cap_set() public {
         vm.startPrank(alice);
 
@@ -90,7 +89,7 @@ contract StableCollateralCapTest is Setup, OrderHelpers, ExpectRevert {
         announceStableDeposit({traderAccount: alice, depositAmount: maxCap, keeperFeeAmount: keeperFee});
         announceStableDeposit({traderAccount: bob, depositAmount: 1e18, keeperFeeAmount: keeperFee});
 
-        skip(uint256(vaultProxy.minExecutabilityAge()));
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge()));
 
         // bytes[] memory priceUpdateData = getPriceUpdateData(collateralPrice);
 
@@ -115,7 +114,7 @@ contract StableCollateralCapTest is Setup, OrderHelpers, ExpectRevert {
         announceAndExecuteWithdraw({
             traderAccount: alice,
             keeperAccount: keeper,
-            withdrawAmount: maxCap / 2,
+            withdrawAmount: stableModProxy.balanceOf(alice) / 2,
             oraclePrice: collateralPrice,
             keeperFeeAmount: keeperFee
         });

@@ -1,38 +1,80 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {ERC721LockableEnumerableUpgradeable} from "./misc/ERC721LockableEnumerableUpgradeable.sol";
-
+import {ERC721EnumerableUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {DecimalMath} from "./libraries/DecimalMath.sol";
-import {PerpMath} from "./libraries/PerpMath.sol";
-import {FlatcoinErrors} from "./libraries/FlatcoinErrors.sol";
-import {FlatcoinStructs} from "./libraries/FlatcoinStructs.sol";
+
 import {FlatcoinModuleKeys} from "./libraries/FlatcoinModuleKeys.sol";
-import {FlatcoinEvents} from "./libraries/FlatcoinEvents.sol";
+
 import {ModuleUpgradeable} from "./abstracts/ModuleUpgradeable.sol";
 
+import {ICommonErrors} from "./interfaces/ICommonErrors.sol";
 import {IFlatcoinVault} from "./interfaces/IFlatcoinVault.sol";
+import {IControllerModule} from "./interfaces/IControllerModule.sol";
 import {ILeverageModule} from "./interfaces/ILeverageModule.sol";
+import {IOrderAnnouncementModule} from "./interfaces/IOrderAnnouncementModule.sol";
+import {IOrderExecutionModule} from "./interfaces/IOrderExecutionModule.sol";
 import {ILiquidationModule} from "./interfaces/ILiquidationModule.sol";
 import {IOracleModule} from "./interfaces/IOracleModule.sol";
-import {IPointsModule} from "./interfaces/IPointsModule.sol";
-import {ILimitOrder} from "./interfaces/ILimitOrder.sol";
+
+import "./interfaces/structs/LeverageModuleStructs.sol" as LeverageModuleStructs;
+import "./interfaces/structs/DelayedOrderStructs.sol" as DelayedOrderStructs;
 
 /// @title LeverageModule
 /// @author dHEDGE
 /// @notice Contains functions to create/manage leverage positions.
 /// @dev This module shouldn't hold any funds but can direct the vault to transfer funds.
-contract LeverageModule is ILeverageModule, ModuleUpgradeable, ERC721LockableEnumerableUpgradeable {
+contract LeverageModule is ILeverageModule, ModuleUpgradeable, ERC721EnumerableUpgradeable {
     using SafeCast for *;
     using DecimalMath for uint256;
+    using SignedMath for int256;
+
+    /////////////////////////////////////////////
+    //                 Events                  //
+    /////////////////////////////////////////////
+
+    event LeverageOpen(
+        address account,
+        uint256 tokenId,
+        uint256 entryPrice,
+        uint256 margin,
+        uint256 size,
+        uint256 tradeFee
+    );
+    event LeverageAdjust(
+        uint256 tokenId,
+        uint256 averagePrice,
+        uint256 adjustPrice,
+        int256 marginDelta,
+        int256 sizeDelta,
+        uint256 tradeFee
+    );
+    event LeverageClose(
+        uint256 tokenId,
+        uint256 closePrice,
+        LeverageModuleStructs.PositionSummary positionSummary,
+        uint256 settledMargin,
+        uint256 size,
+        uint256 tradeFee
+    );
+
+    /////////////////////////////////////////////
+    //                 Errors                  //
+    /////////////////////////////////////////////
+
+    error InvalidLeverageCriteria();
+    error MarginTooSmall(uint256 marginMin, uint256 margin);
+    error LeverageTooLow(uint256 leverageMin, uint256 leverage);
+    error LeverageTooHigh(uint256 leverageMax, uint256 leverage);
+
+    /////////////////////////////////////////////
+    //                 State                   //
+    /////////////////////////////////////////////
 
     /// @notice ERC721 token ID increment on mint.
     uint256 public tokenIdNext;
-
-    /// @notice Charged for opening, adjusting or closing a position.
-    /// @dev 1e18 = 100%
-    uint256 public leverageTradingFee;
 
     /// @notice Leverage position criteria limits
     /// @notice A minimum margin limit adds a cost to create a position and ensures it can be liquidated at high leverage
@@ -44,6 +86,10 @@ contract LeverageModule is ILeverageModule, ModuleUpgradeable, ERC721LockableEnu
     /// @notice Maximum leverage limit ensures that the position is safely liquidatable by keepers
     uint256 public leverageMax;
 
+    /////////////////////////////////////////////
+    //         Initialization Functions        //
+    /////////////////////////////////////////////
+
     /// @dev To prevent the implementation contract from being used, we invoke the _disableInitializers
     ///      function in the constructor to automatically lock it when it is deployed.
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -53,57 +99,52 @@ contract LeverageModule is ILeverageModule, ModuleUpgradeable, ERC721LockableEnu
 
     /// @notice Function to initialize this contract.
     function initialize(
-        IFlatcoinVault _vault,
-        uint256 _levTradingFee,
-        uint256 _marginMin,
-        uint256 _leverageMin,
-        uint256 _leverageMax
+        IFlatcoinVault vault_,
+        uint256 marginMin_,
+        uint256 leverageMin_,
+        uint256 leverageMax_
     ) external initializer {
-        __Module_init(FlatcoinModuleKeys._LEVERAGE_MODULE_KEY, _vault);
+        __Module_init(FlatcoinModuleKeys._LEVERAGE_MODULE_KEY, vault_);
         __ERC721_init("Flat Money Leveraged Positions", "LEV");
 
-        setLeverageTradingFee(_levTradingFee);
-        setLeverageCriteria(_marginMin, _leverageMin, _leverageMax);
+        _setLeverageCriteria(marginMin_, leverageMin_, leverageMax_);
     }
 
     /////////////////////////////////////////////
-    //         External Write Functions         //
+    //       Authorized Module Functions       //
     /////////////////////////////////////////////
 
     /// @notice Leverage open function. Mints ERC721 token receipt.
-    /// @dev Has to be used in conjunction with the DelayedOrder module.
+    /// @dev Has to be used in conjunction with the OrderExecution module.
     /// @dev Uses the Pyth network price to execute.
-    /// @param _account The user account which has a pending open leverage order.
-    /// @param _keeper The address of the keeper executing the order.
-    /// @param _order The order to be executed.
+    /// @param account_ The user account which has a pending open leverage order.
+    /// @param order_ The order to be executed.
     function executeOpen(
-        address _account,
-        address _keeper,
-        FlatcoinStructs.Order calldata _order
-    ) external onlyAuthorizedModule {
+        address account_,
+        DelayedOrderStructs.Order calldata order_
+    ) external onlyAuthorizedModule returns (uint256 newTokenId_) {
         // Make sure the oracle price is after the order executability time
-        uint32 maxAge = _getMaxAge(_order.executableAtTime);
+        uint32 maxAge = _getMaxAge(order_.executableAtTime);
 
-        FlatcoinStructs.AnnouncedLeverageOpen memory announcedOpen = abi.decode(
-            _order.orderData,
-            (FlatcoinStructs.AnnouncedLeverageOpen)
+        DelayedOrderStructs.AnnouncedLeverageOpen memory announcedOpen = abi.decode(
+            order_.orderData,
+            (DelayedOrderStructs.AnnouncedLeverageOpen)
         );
 
         // Check that buy price doesn't exceed requested price.
         (uint256 entryPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice({
+            asset: address(vault.collateral()),
             maxAge: maxAge,
             priceDiffCheck: true
         });
 
         if (entryPrice > announcedOpen.maxFillPrice)
-            revert FlatcoinErrors.HighSlippage(entryPrice, announcedOpen.maxFillPrice);
+            revert ICommonErrors.HighSlippage(entryPrice, announcedOpen.maxFillPrice);
 
         vault.checkSkewMax({
             sizeChange: announcedOpen.additionalSize,
             stableCollateralChange: int256(announcedOpen.tradeFee)
         });
-
-        uint256 newTokenId;
 
         {
             // The margin change is equal to funding fees accrued to longs and the margin deposited by the trader.
@@ -113,69 +154,66 @@ contract LeverageModule is ILeverageModule, ModuleUpgradeable, ERC721LockableEnu
                 additionalSizeDelta: int256(announcedOpen.additionalSize)
             });
 
-            newTokenId = _mint(_account);
+            newTokenId_ = _mint(account_);
 
             vault.setPosition(
-                FlatcoinStructs.Position({
+                LeverageModuleStructs.Position({
                     averagePrice: entryPrice,
                     marginDeposited: announcedOpen.margin,
                     additionalSize: announcedOpen.additionalSize,
-                    entryCumulativeFunding: vault.cumulativeFundingRate()
+                    entryCumulativeFunding: IControllerModule(
+                        vault.moduleAddress(FlatcoinModuleKeys._CONTROLLER_MODULE_KEY)
+                    ).cumulativeFundingRate()
                 }),
-                newTokenId
+                newTokenId_
             );
         }
 
         // Check that the new position isn't immediately liquidatable.
         if (
-            ILiquidationModule(vault.moduleAddress(FlatcoinModuleKeys._LIQUIDATION_MODULE_KEY)).canLiquidate(newTokenId)
-        ) revert FlatcoinErrors.PositionCreatesBadDebt();
+            ILiquidationModule(vault.moduleAddress(FlatcoinModuleKeys._LIQUIDATION_MODULE_KEY)).canLiquidate(
+                newTokenId_
+            )
+        ) revert ICommonErrors.PositionCreatesBadDebt();
 
-        // Mint points
-        IPointsModule pointsModule = IPointsModule(vault.moduleAddress(FlatcoinModuleKeys._POINTS_MODULE_KEY));
-        pointsModule.mintLeverageOpen(_account, announcedOpen.additionalSize);
-
-        // Settle the collateral
-        vault.updateStableCollateralTotal(int256(announcedOpen.tradeFee)); // pay the trade fee to stable LPs
-        vault.sendCollateral({to: _keeper, amount: _order.keeperFee}); // pay the keeper their fee
-
-        emit FlatcoinEvents.LeverageOpen(_account, newTokenId, entryPrice);
+        emit LeverageOpen(
+            account_,
+            newTokenId_,
+            entryPrice,
+            announcedOpen.margin,
+            announcedOpen.additionalSize,
+            announcedOpen.tradeFee
+        );
     }
 
     /// @notice Leverage adjust function.
-    /// @dev Needs to be used in conjunction with the DelayedOrder module.
+    /// @dev Needs to be used in conjunction with the OrderExecution module.
     /// @dev Note that a check has to be made in the calling module to ensure that
     ///      the position exists before calling this function.
-    /// @param _account The user account which has a pending adjust leverage order.
-    /// @param _keeper The address of the keeper executing the order.
-    /// @param _order The order to be executed.
-    function executeAdjust(
-        address _account,
-        address _keeper,
-        FlatcoinStructs.Order calldata _order
-    ) external onlyAuthorizedModule {
-        uint32 maxAge = _getMaxAge(_order.executableAtTime);
+    /// @param order_ The order to be executed.
+    function executeAdjust(DelayedOrderStructs.Order calldata order_) external onlyAuthorizedModule {
+        IOracleModule oracleModule = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY));
+        uint32 maxAge = _getMaxAge(order_.executableAtTime);
 
-        FlatcoinStructs.AnnouncedLeverageAdjust memory announcedAdjust = abi.decode(
-            _order.orderData,
-            (FlatcoinStructs.AnnouncedLeverageAdjust)
+        DelayedOrderStructs.AnnouncedLeverageAdjust memory announcedAdjust = abi.decode(
+            order_.orderData,
+            (DelayedOrderStructs.AnnouncedLeverageAdjust)
         );
 
-        FlatcoinStructs.Position memory position = vault.getPosition(announcedAdjust.tokenId);
+        LeverageModuleStructs.Position memory position = vault.getPosition(announcedAdjust.tokenId);
 
-        (uint256 adjustPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice({
+        (uint256 adjustPrice, ) = oracleModule.getPrice({
+            asset: address(vault.collateral()),
             maxAge: maxAge,
             priceDiffCheck: true
         });
 
-        int256 cumulativeFunding = vault.cumulativeFundingRate();
+        int256 cumulativeFunding = IControllerModule(vault.moduleAddress(FlatcoinModuleKeys._CONTROLLER_MODULE_KEY))
+            .cumulativeFundingRate();
 
         // Prevent adjustment if the position is underwater.
-        if (
-            PerpMath
-                ._getPositionSummary({position: position, nextFundingEntry: cumulativeFunding, price: adjustPrice})
-                .marginAfterSettlement <= 0
-        ) revert FlatcoinErrors.ValueNotPositive("marginAfterSettlement");
+        if (getPositionSummary(vault.getPosition(announcedAdjust.tokenId), adjustPrice).marginAfterSettlement <= 0)
+            revert ICommonErrors.ValueNotPositive("marginAfterSettlement");
 
         // Fees come out from the margin if the margin is being reduced or remains unchanged (meaning the size is being modified).
         int256 marginAdjustment = (announcedAdjust.marginAdjustment > 0)
@@ -194,26 +232,23 @@ contract LeverageModule is ILeverageModule, ModuleUpgradeable, ERC721LockableEnu
             // Size is being increased. Adjust the entry price to the average entry price.
 
             if (adjustPrice > announcedAdjust.fillPrice)
-                revert FlatcoinErrors.HighSlippage(adjustPrice, announcedAdjust.fillPrice);
+                revert ICommonErrors.HighSlippage(adjustPrice, announcedAdjust.fillPrice);
 
-            newEntryPrice =
-                (position.averagePrice *
-                    position.additionalSize +
-                    adjustPrice *
-                    uint256(announcedAdjust.additionalSizeAdjustment)) /
-                newAdditionalSize;
+            uint256 newEntryAmount = position.averagePrice *
+                position.additionalSize +
+                adjustPrice *
+                uint256(announcedAdjust.additionalSizeAdjustment);
 
-            // Given that the size of a position is being increased, it's necessary to check that
-            // it doesn't exceed the max skew limit.
-            vault.checkSkewMax({
-                sizeChange: uint256(announcedAdjust.additionalSizeAdjustment),
-                stableCollateralChange: int256(announcedAdjust.tradeFee)
-            });
+            // In case there is a rounding error, we round up the entry price as this will ensure the traders don't get extra
+            // margin after settlement of the position.
+            newEntryPrice = (newEntryAmount % newAdditionalSize != 0)
+                ? newEntryAmount / newAdditionalSize + 1
+                : newEntryAmount / newAdditionalSize;
         } else {
             // Size is being decreased. Keep the same entry price.
 
             if (adjustPrice < announcedAdjust.fillPrice)
-                revert FlatcoinErrors.HighSlippage(adjustPrice, announcedAdjust.fillPrice);
+                revert ICommonErrors.HighSlippage(adjustPrice, announcedAdjust.fillPrice);
 
             int256 partialPnLEarned = (-announcedAdjust.additionalSizeAdjustment *
                 (int256(adjustPrice) - int256(position.averagePrice))) / int256(adjustPrice);
@@ -247,7 +282,7 @@ contract LeverageModule is ILeverageModule, ModuleUpgradeable, ERC721LockableEnu
         });
 
         vault.setPosition(
-            FlatcoinStructs.Position({
+            LeverageModuleStructs.Position({
                 averagePrice: newEntryPrice,
                 marginDeposited: newMargin.toUint256(),
                 additionalSize: newAdditionalSize,
@@ -262,78 +297,60 @@ contract LeverageModule is ILeverageModule, ModuleUpgradeable, ERC721LockableEnu
                 announcedAdjust.tokenId,
                 adjustPrice
             )
-        ) revert FlatcoinErrors.PositionCreatesBadDebt();
+        ) revert ICommonErrors.PositionCreatesBadDebt();
 
-        // Mint points.
-        if (announcedAdjust.additionalSizeAdjustment > 0) {
-            address positionOwner = ownerOf(announcedAdjust.tokenId);
-            IPointsModule pointsModule = IPointsModule(vault.moduleAddress(FlatcoinModuleKeys._POINTS_MODULE_KEY));
-
-            pointsModule.mintLeverageOpen(positionOwner, uint256(announcedAdjust.additionalSizeAdjustment));
-        }
-
-        if (announcedAdjust.tradeFee > 0) vault.updateStableCollateralTotal(int256(announcedAdjust.tradeFee));
-
-        // Sending keeper fee from order contract to the executor.
-        vault.sendCollateral({to: _keeper, amount: _order.keeperFee});
-
-        if (announcedAdjust.marginAdjustment < 0) {
-            // We send the user that much margin they requested during announceLeverageAdjust().
-            // However their remaining margin is reduced by the fees.
-            // It is accounted in announceLeverageAdjust().
-            uint256 marginToWithdraw = uint256(announcedAdjust.marginAdjustment * -1);
-
-            // Withdrawing margin from the vault and sending it to the user.
-            vault.sendCollateral({to: _account, amount: marginToWithdraw});
-        }
-
-        emit FlatcoinEvents.LeverageAdjust(announcedAdjust.tokenId, newEntryPrice, adjustPrice);
+        emit LeverageAdjust(
+            announcedAdjust.tokenId,
+            newEntryPrice,
+            adjustPrice,
+            marginAdjustment,
+            announcedAdjust.additionalSizeAdjustment,
+            announcedAdjust.tradeFee
+        );
     }
 
     /// @notice Leverage close function.
-    /// @dev Needs to be used in conjunction with the DelayedOrder module.
+    /// @dev Needs to be used in conjunction with the OrderExecution module.
     /// @dev Note that a check has to be made in the calling module to ensure that
     ///      the position exists before calling this function.
-    /// @param _account The user account which has a pending close leverage order.
-    /// @param _keeper The address of the keeper executing the order.
-    /// @param _order The order to be executed.
+    /// @param order_ The order to be executed.
     function executeClose(
-        address _account,
-        address _keeper,
-        FlatcoinStructs.Order calldata _order
-    ) external onlyAuthorizedModule {
-        FlatcoinStructs.AnnouncedLeverageClose memory announcedClose = abi.decode(
-            _order.orderData,
-            (FlatcoinStructs.AnnouncedLeverageClose)
+        DelayedOrderStructs.Order calldata order_
+    ) external onlyAuthorizedModule returns (uint256 marginAfterPositionClose_) {
+        IOracleModule oracleModule = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY));
+        DelayedOrderStructs.AnnouncedLeverageClose memory announcedClose = abi.decode(
+            order_.orderData,
+            (DelayedOrderStructs.AnnouncedLeverageClose)
         );
 
-        FlatcoinStructs.Position memory position = vault.getPosition(announcedClose.tokenId);
+        LeverageModuleStructs.Position memory position = vault.getPosition(announcedClose.tokenId);
 
         // Make sure the oracle price is after the order executability time
-        uint32 maxAge = _getMaxAge(_order.executableAtTime);
+        uint32 maxAge = _getMaxAge(order_.executableAtTime);
 
         // check that sell price doesn't exceed requested price
-        (uint256 exitPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice({
+        (uint256 exitPrice, ) = oracleModule.getPrice({
+            asset: address(vault.collateral()),
             maxAge: maxAge,
             priceDiffCheck: true
         });
         if (exitPrice < announcedClose.minFillPrice)
-            revert FlatcoinErrors.HighSlippage(exitPrice, announcedClose.minFillPrice);
+            revert ICommonErrors.HighSlippage(exitPrice, announcedClose.minFillPrice);
 
         uint256 totalFee;
         int256 settledMargin;
-        FlatcoinStructs.PositionSummary memory positionSummary;
+        LeverageModuleStructs.PositionSummary memory positionSummary;
         {
-            positionSummary = PerpMath._getPositionSummary(position, vault.cumulativeFundingRate(), exitPrice);
+            positionSummary = getPositionSummary(position, exitPrice);
 
             settledMargin = positionSummary.marginAfterSettlement;
-            totalFee = announcedClose.tradeFee + _order.keeperFee;
+            totalFee = announcedClose.tradeFee + order_.keeperFee;
 
-            if (settledMargin <= 0) revert FlatcoinErrors.ValueNotPositive("settledMargin");
+            if (settledMargin <= 0) revert ICommonErrors.ValueNotPositive("settledMargin");
             // Make sure there is enough margin in the position to pay the keeper fee
-            if (settledMargin < int256(totalFee)) revert FlatcoinErrors.NotEnoughMarginForFees(settledMargin, totalFee);
+            if (settledMargin < int256(totalFee)) revert ICommonErrors.NotEnoughMarginForFees(settledMargin, totalFee);
 
-            vault.updateStableCollateralTotal(int256(announcedClose.tradeFee) - positionSummary.profitLoss); // pay the trade fee to stable LPs
+            vault.updateStableCollateralTotal(-positionSummary.profitLoss); // pay the trade fee to stable LPs
 
             vault.updateGlobalPositionData({
                 price: position.averagePrice,
@@ -345,154 +362,85 @@ contract LeverageModule is ILeverageModule, ModuleUpgradeable, ERC721LockableEnu
             vault.deletePosition(announcedClose.tokenId);
         }
 
-        // Cancel any existing limit order on the position
-        ILimitOrder(vault.moduleAddress(FlatcoinModuleKeys._LIMIT_ORDER_KEY)).cancelExistingLimitOrder(
-            announcedClose.tokenId
+        burn(announcedClose.tokenId);
+
+        emit LeverageClose(
+            announcedClose.tokenId,
+            exitPrice,
+            positionSummary,
+            uint256(settledMargin),
+            position.additionalSize,
+            announcedClose.tradeFee
         );
 
-        burn(announcedClose.tokenId, FlatcoinModuleKeys._LEVERAGE_MODULE_KEY);
+        return uint256(settledMargin);
+    }
 
-        // Settle the collateral.
-        vault.sendCollateral({to: _keeper, amount: _order.keeperFee}); // pay the keeper their fee
-        vault.sendCollateral({to: _account, amount: uint256(settledMargin) - totalFee}); // transfer remaining amount to the trader
-
-        emit FlatcoinEvents.LeverageClose(announcedClose.tokenId, exitPrice, positionSummary);
+    /// @notice Mints an ERC721 token representing a leverage position.
+    /// @param to_ The address to mint the token to.
+    /// @return tokenId_ The ERC721 token ID of the leverage position.
+    function mint(address to_) public onlyAuthorizedModule returns (uint256 tokenId_) {
+        tokenId_ = _mint(to_);
     }
 
     /// @notice Burns the ERC721 token representing the leverage position.
-    /// @dev This function unlocks the position before burning it.
-    ///      This is to avoid the transfer to address(0) reversion.
-    /// @param _tokenId The ERC721 token ID of the leverage position.
-    /// @param _moduleKey The module key which is burning the token.
-    function burn(uint256 _tokenId, bytes32 _moduleKey) public onlyAuthorizedModule {
-        _clearAllLocks(_tokenId, _moduleKey);
-        _burn(_tokenId);
-    }
-
-    /// @notice Locks the ERC721 token representing the leverage position.
-    /// @param _tokenId The ERC721 token ID of the leverage position.
-    /// @param _moduleKey The module key which is locking the token.
-    function lock(uint256 _tokenId, bytes32 _moduleKey) public onlyAuthorizedModule {
-        _lock(_tokenId, _moduleKey);
-    }
-
-    /// @notice Unlocks the ERC721 token representing the leverage position.
-    /// @param _tokenId The ERC721 token ID of the leverage position.
-    /// @param _moduleKey The module key which is unlocking the token.
-    function unlock(uint256 _tokenId, bytes32 _moduleKey) public onlyAuthorizedModule {
-        _unlock(_tokenId, _moduleKey);
+    /// @param tokenId_ The ERC721 token ID of the leverage position.
+    function burn(uint256 tokenId_) public onlyAuthorizedModule {
+        _burn(tokenId_);
     }
 
     /////////////////////////////////////////////
     //             View Functions              //
     /////////////////////////////////////////////
 
-    /// @notice Returns the lock status of a leverage NFT position.
-    /// @param _tokenId The ERC721 token ID of the leverage position.
-    /// @return _lockStatus The lock status of the leverage position.
-    function isLocked(uint256 _tokenId) public view override returns (bool _lockStatus) {
-        return _lockCounter[_tokenId].lockCount > 0;
-    }
-
-    /// @notice Returns the lock status of a leverage NFT position by a module.
-    /// @dev Note that when a position NFT is burned, the individual locks are not cleared.
-    ///      Meaning, the lock count is set to 0 but individual lockedByModule statuses are not cleared.
-    ///      So when lockedByModule is true but lock owner is address(0) then it means the position was deleted.
-    /// @param _tokenId The ERC721 token ID of the leverage position.
-    /// @param _moduleKey The module key to check if a module locked the NFT previously or not.
-    /// @return _lockedByModuleStatus The lock status of the leverage position by the module.
-    function isLockedByModule(
-        uint256 _tokenId,
-        bytes32 _moduleKey
-    ) public view override returns (bool _lockedByModuleStatus) {
-        return _lockCounter[_tokenId].lockedByModule[_moduleKey] && _ownerOf(_tokenId) != address(0);
-    }
-
-    /// @notice Returns a summary of a leverage position.
-    /// @param _tokenId The ERC721 token ID of the leverage position.
-    /// @return _positionSummary The summary of the leverage position.
+    /// @notice Returns the summary of a position using the current price.
+    /// @dev Note that this function would most often use the onchain oracle price to calculate the position summary.
+    /// @param tokenId_ The ERC721 token ID of the position.
+    /// @return positionSummary_ The summary of the position.
     function getPositionSummary(
-        uint256 _tokenId
-    ) public view returns (FlatcoinStructs.PositionSummary memory _positionSummary) {
-        FlatcoinStructs.Position memory position = vault.getPosition(_tokenId);
-        FlatcoinStructs.VaultSummary memory vaultSummary = vault.getVaultSummary();
-
-        (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice();
-
-        // Get the nextFundingEntry for the market.
-        int256 nextFundingEntry = PerpMath._nextFundingEntry(
-            vaultSummary,
-            vault.maxFundingVelocity(),
-            vault.maxVelocitySkew()
+        uint256 tokenId_
+    ) external view returns (LeverageModuleStructs.PositionSummary memory positionSummary_) {
+        (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice(
+            address(vault.collateral())
         );
 
-        return PerpMath._getPositionSummary(position, nextFundingEntry, currentPrice);
+        return getPositionSummary(vault.getPosition(tokenId_), currentPrice);
     }
 
-    /// @notice Returns a summary of the market.
-    /// @dev This includes all the parameters which are related mostly with the leverage traders.
-    /// @return _marketSummary The summary of the market.
-    function getMarketSummary() public view returns (FlatcoinStructs.MarketSummary memory _marketSummary) {
-        FlatcoinStructs.VaultSummary memory vaultSummary = vault.getVaultSummary();
+    /// @dev Summarises a positions' earnings/losses.
+    /// @param position_ The position to summarise.
+    /// @param price_ The current price of the collateral asset.
+    /// @return positionSummary_ The summary of the position.
+    function getPositionSummary(
+        LeverageModuleStructs.Position memory position_,
+        uint256 price_
+    ) public view returns (LeverageModuleStructs.PositionSummary memory positionSummary_) {
+        IControllerModule perpController = IControllerModule(
+            vault.moduleAddress(FlatcoinModuleKeys._CONTROLLER_MODULE_KEY)
+        );
 
-        (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice();
+        int256 profitLossOfPosition = perpController.profitLoss(position_, price_);
+        int256 accruedFundingOfPosition = perpController.accruedFunding(position_);
 
         return
-            PerpMath._getMarketSummaryLongs(
-                vaultSummary,
-                vault.maxFundingVelocity(),
-                vault.maxVelocitySkew(),
-                currentPrice
-            );
-    }
-
-    /// @notice Returns the total profit and loss of all the leverage positions.
-    /// @dev Adjusts for the funding fees accrued.
-    /// @return _fundingAdjustedPnL The total profit and loss of all the leverage positions.
-    function fundingAdjustedLongPnLTotal() public view returns (int256 _fundingAdjustedPnL) {
-        return fundingAdjustedLongPnLTotal({_maxAge: type(uint32).max, _priceDiffCheck: false});
-    }
-
-    /// @notice Returns the total profit and loss of all the leverage positions.
-    /// @dev Adjusts for the funding fees accrued.
-    /// @param _maxAge The maximum age of the oracle price to be used.
-    /// @return _fundingAdjustedPnL The total profit and loss of all the leverage positions.
-    function fundingAdjustedLongPnLTotal(
-        uint32 _maxAge,
-        bool _priceDiffCheck
-    ) public view returns (int256 _fundingAdjustedPnL) {
-        (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice({
-            maxAge: _maxAge,
-            priceDiffCheck: _priceDiffCheck
-        });
-
-        FlatcoinStructs.VaultSummary memory vaultSummary = vault.getVaultSummary();
-        FlatcoinStructs.MarketSummary memory marketSummary = PerpMath._getMarketSummaryLongs(
-            vaultSummary,
-            vault.maxFundingVelocity(),
-            vault.maxVelocitySkew(),
-            currentPrice
-        );
-
-        return marketSummary.profitLossTotalByLongs + marketSummary.accruedFundingTotalByLongs;
+            LeverageModuleStructs.PositionSummary({
+                profitLoss: profitLossOfPosition,
+                accruedFunding: accruedFundingOfPosition,
+                marginAfterSettlement: int256(position_.marginDeposited) +
+                    profitLossOfPosition +
+                    accruedFundingOfPosition
+            });
     }
 
     /// @notice Asserts that the position to be opened meets margin and size criteria.
-    /// @param _margin The margin to be deposited.
-    /// @param _size The size of the position.
-    function checkLeverageCriteria(uint256 _margin, uint256 _size) public view {
-        uint256 leverage = ((_margin + _size) * 1e18) / _margin;
+    /// @param margin_ The margin to be deposited.
+    /// @param size_ The size of the position.
+    function checkLeverageCriteria(uint256 margin_, uint256 size_) public view {
+        uint256 leverage = ((margin_ + size_) * 1e18) / margin_;
 
-        if (leverage < leverageMin) revert FlatcoinErrors.LeverageTooLow(leverageMin, leverage);
-        if (leverage > leverageMax) revert FlatcoinErrors.LeverageTooHigh(leverageMax, leverage);
-        if (_margin < marginMin) revert FlatcoinErrors.MarginTooSmall(marginMin, _margin);
-    }
-
-    /// @notice Returns the trade fee for a given size.
-    /// @param _size The size of the trade.
-    /// @return _tradeFee The trade fee.
-    function getTradeFee(uint256 _size) external view returns (uint256 _tradeFee) {
-        return leverageTradingFee._multiplyDecimal(_size);
+        if (leverage < leverageMin) revert LeverageTooLow(leverageMin, leverage);
+        if (leverage > leverageMax) revert LeverageTooHigh(leverageMax, leverage);
+        if (margin_ < marginMin) revert MarginTooSmall(marginMin, margin_);
     }
 
     /////////////////////////////////////////////
@@ -500,49 +448,126 @@ contract LeverageModule is ILeverageModule, ModuleUpgradeable, ERC721LockableEnu
     /////////////////////////////////////////////
 
     /// @notice Handles incrementing the tokenIdNext and minting the nft
-    /// @param _to the minter's address
-    /// @return _tokenId the tokenId of the new NFT.
-    function _mint(address _to) internal returns (uint256 _tokenId) {
-        _tokenId = tokenIdNext;
+    /// @param to_ the minter's address
+    /// @return tokenId_ the tokenId of the new NFT.
+    function _mint(address to_) internal returns (uint256 tokenId_) {
+        tokenId_ = tokenIdNext;
 
-        _safeMint(_to, tokenIdNext);
+        _safeMint(to_, tokenIdNext);
 
         tokenIdNext += 1;
     }
 
+    /// @notice Before token transfer hook.
+    /// @dev Only reverts if there is existing order corresponding to the token ID and only if the action is a transfer.
+    ///      When the token ID is burnt, any associated orders are deleted.
+    /// @param to_ The address to transfer token to.
+    /// @param tokenId_ The ERC721 token ID to transfer.
+    /// @param auth_ See OZ _update function <https://docs.openzeppelin.com/contracts/5.x/api/token/erc721#ERC721-_update-address-uint256-address->
+    function _update(address to_, uint256 tokenId_, address auth_) internal virtual override returns (address from) {
+        address tokenOwner = _ownerOf(tokenId_);
+        IOrderAnnouncementModule orderAnnouncementModule = IOrderAnnouncementModule(
+            vault.moduleAddress(FlatcoinModuleKeys._ORDER_ANNOUNCEMENT_MODULE_KEY)
+        );
+
+        // Ignore the checks if a new position is being minted because the `tokenOwner` of the `tokenId_` is address(0) only
+        // in that case.
+        if (tokenOwner != address(0)) {
+            DelayedOrderStructs.Order memory normalOrder = orderAnnouncementModule.getAnnouncedOrder(tokenOwner);
+            DelayedOrderStructs.Order memory limitOrder = orderAnnouncementModule.getLimitOrder(tokenId_);
+
+            // We need to perform additional checks only in case there exists an order associated with the token owner
+            // and the order type is a leverage adjust, leverage close or a limit order associated with this token ID.
+            // In other cases, we can proceed with the transfer.
+            if (
+                normalOrder.orderType == DelayedOrderStructs.OrderType.LeverageAdjust ||
+                normalOrder.orderType == DelayedOrderStructs.OrderType.LeverageClose
+            ) {
+                // Decode the order data to check if the order belongs to `tokenId_`.
+                if (normalOrder.orderType == DelayedOrderStructs.OrderType.LeverageAdjust) {
+                    DelayedOrderStructs.AnnouncedLeverageAdjust memory leverageAdjust = abi.decode(
+                        normalOrder.orderData,
+                        (DelayedOrderStructs.AnnouncedLeverageAdjust)
+                    );
+
+                    if (leverageAdjust.tokenId == tokenId_) {
+                        // If the token is being burnt then cancel the existing order associated with it.
+                        // This is because there might be funds locked in the execution module that need to be refunded.
+                        if (to_ == address(0)) {
+                            IOrderExecutionModule(vault.moduleAddress(FlatcoinModuleKeys._ORDER_EXECUTION_MODULE_KEY))
+                                .cancelOrderByModule(tokenOwner);
+                        } else {
+                            // Otherwise, disallow the transfer.
+                            revert ICommonErrors.OrderExists(normalOrder.orderType);
+                        }
+                    }
+                } else {
+                    DelayedOrderStructs.AnnouncedLeverageClose memory leverageClose = abi.decode(
+                        normalOrder.orderData,
+                        (DelayedOrderStructs.AnnouncedLeverageClose)
+                    );
+
+                    if (leverageClose.tokenId == tokenId_) {
+                        // If the token is being burnt then delete the order.
+                        // There are no funds locked in the execution module that need to be refunded.
+                        if (to_ == address(0)) {
+                            IOrderAnnouncementModule(
+                                vault.moduleAddress(FlatcoinModuleKeys._ORDER_ANNOUNCEMENT_MODULE_KEY)
+                            ).deleteOrder(tokenOwner);
+                        } else {
+                            // Otherwise, disallow the transfer.
+                            revert ICommonErrors.OrderExists(normalOrder.orderType);
+                        }
+                    }
+                }
+            }
+
+            if (limitOrder.orderType != DelayedOrderStructs.OrderType.None) {
+                // If a limit order associated with the token ID exists and the token is being burnt then delete the order.
+                // There are no funds locked in the execution module that need to be refunded.
+                if (to_ == address(0)) {
+                    IOrderAnnouncementModule(vault.moduleAddress(FlatcoinModuleKeys._ORDER_ANNOUNCEMENT_MODULE_KEY))
+                        .deleteLimitOrder(tokenId_);
+                } else {
+                    // Otherwise, disallow the transfer.
+                    revert ICommonErrors.OrderExists(limitOrder.orderType);
+                }
+            }
+        }
+
+        return super._update(to_, tokenId_, auth_);
+    }
+
+    /// @notice Setter for the leverage position criteria limits.
+    /// @dev The limits are used to ensure that the position is valuable and there is an incentive to liquidate it.
+    /// @param marginMin_ The new minimum margin limit.
+    /// @param leverageMin_ The new minimum leverage limit.
+    /// @param leverageMax_ The new maximum leverage limit.
+    function _setLeverageCriteria(uint256 marginMin_, uint256 leverageMin_, uint256 leverageMax_) private {
+        if (leverageMax_ <= leverageMin_) revert InvalidLeverageCriteria();
+
+        marginMin = marginMin_;
+        leverageMin = leverageMin_;
+        leverageMax = leverageMax_;
+    }
+
     /// @notice Returns the maximum age of the oracle price to be used.
-    /// @param _executableAtTime The time at which the order is executable.
-    /// @return _maxAge The maximum age of the oracle price to be used.
-    function _getMaxAge(uint64 _executableAtTime) internal view returns (uint32 _maxAge) {
-        return (block.timestamp - _executableAtTime).toUint32();
+    /// @param executableAtTime_ The time at which the order is executable.
+    /// @return maxAge_ The maximum age of the oracle price to be used.
+    function _getMaxAge(uint64 executableAtTime_) internal view returns (uint32 maxAge_) {
+        return (block.timestamp - executableAtTime_).toUint32();
     }
 
     /////////////////////////////////////////////
     //             Owner Functions             //
     /////////////////////////////////////////////
 
-    /// @notice Setter for the leverage open/close fee.
-    /// @dev Fees can be set to 0 if needed.
-    /// @param _leverageTradingFee The new leverage trading fee.
-    function setLeverageTradingFee(uint256 _leverageTradingFee) public onlyOwner {
-        // Set fee cap to max 1%.
-        // This is to avoid fat fingering but if any change is needed, the owner needs to
-        // upgrade this module.
-        if (_leverageTradingFee > 0.01e18) revert FlatcoinErrors.InvalidFee(_leverageTradingFee);
-
-        leverageTradingFee = _leverageTradingFee;
-    }
-
     /// @notice Setter for the leverage position criteria limits.
     /// @dev The limits are used to ensure that the position is valuable and there is an incentive to liquidate it.
-    /// @param _marginMin The new minimum margin limit.
-    /// @param _leverageMin The new minimum leverage limit.
-    /// @param _leverageMax The new maximum leverage limit.
-    function setLeverageCriteria(uint256 _marginMin, uint256 _leverageMin, uint256 _leverageMax) public onlyOwner {
-        if (_leverageMax <= _leverageMin) revert FlatcoinErrors.InvalidLeverageCriteria();
-
-        marginMin = _marginMin;
-        leverageMin = _leverageMin;
-        leverageMax = _leverageMax;
+    /// @param marginMin_ The new minimum margin limit.
+    /// @param leverageMin_ The new minimum leverage limit.
+    /// @param leverageMax_ The new maximum leverage limit.
+    function setLeverageCriteria(uint256 marginMin_, uint256 leverageMin_, uint256 leverageMax_) external onlyOwner {
+        _setLeverageCriteria(marginMin_, leverageMin_, leverageMax_);
     }
 }

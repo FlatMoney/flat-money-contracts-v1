@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {Setup} from "../../helpers/Setup.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
+import "../../helpers/OrderHelpers.sol";
 import {OpenPositionTest} from "../Leverage-Module/OpenPosition.t.sol";
 import "forge-std/console2.sol";
 
 import "../../../src/interfaces/IChainlinkAggregatorV3.sol";
 
-contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
+contract WithdrawTest is OrderHelpers, OpenPositionTest {
     function test_withdraw() public {
         vm.startPrank(alice);
 
         uint256 stableDeposit = 100e18;
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -34,12 +34,16 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         });
 
         assertApproxEqAbs(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - (stableDeposit / 2) - (mockKeeperFee.getKeeperFee() * 2),
             0.0000001e18,
             "Alice's balance after half withdrawal incorrect"
         );
-        assertEq(stableModProxy.balanceOf(alice), stableDeposit / 2, "Alice's flatcoin balance incorrect");
+        assertEq(
+            stableModProxy.balanceOf(alice),
+            stableModProxy.stableDepositQuote(stableDeposit / 2),
+            "Alice's flatcoin balance incorrect"
+        );
 
         // Withdraw the second 50%
         // Have Bob deposit some amount first so that Alice's full withdrawal doesn't revert on minimum liquidity
@@ -61,7 +65,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         });
 
         assertApproxEqAbs(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - (mockKeeperFee.getKeeperFee() * 3),
             0.0000001e18,
             "Alice's balance after full withdrawal incorrect"
@@ -74,7 +78,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         vaultProxy.setSkewFractionMax(10_000e18);
 
         uint256 stableDeposit = 100e18;
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -94,7 +98,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         });
 
         uint256 stableCollateralPerShareBefore = stableModProxy.stableCollateralPerShare();
-        uint256 wethBalanceOfVaultBefore = WETH.balanceOf(address(vaultProxy));
+        uint256 wethBalanceOfVaultBefore = collateralAsset.balanceOf(address(vaultProxy));
 
         uint256 stableBalanceOf = stableModProxy.balanceOf(alice);
         uint256 withdrawAmount = stableBalanceOf / 2;
@@ -108,7 +112,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         });
 
         uint256 stableCollateralPerShareAfter = stableModProxy.stableCollateralPerShare();
-        uint256 wethBalanceOfVaultAfter = WETH.balanceOf(address(vaultProxy));
+        uint256 wethBalanceOfVaultAfter = collateralAsset.balanceOf(address(vaultProxy));
 
         assertLt(wethBalanceOfVaultAfter, wethBalanceOfVaultBefore);
         assertEq(
@@ -118,7 +122,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
 
         // Alice's balance should be returned correctly discounting for the margin.
         assertApproxEqAbs(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - (stableDeposit / 2) - (mockKeeperFee.getKeeperFee() * 3) - 100e18,
             0.0000001e18,
             "Alice's balance after half withdrawal incorrect"
@@ -131,7 +135,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         vaultProxy.setSkewFractionMax(10_000e18);
 
         uint256 stableDeposit = 100e18;
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -151,7 +155,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         });
 
         uint256 stableCollateralPerShareBefore = stableModProxy.stableCollateralPerShare();
-        uint256 wethBalanceOfVaultBefore = WETH.balanceOf(address(vaultProxy));
+        uint256 wethBalanceOfVaultBefore = collateralAsset.balanceOf(address(vaultProxy));
 
         uint256 stableBalanceOf = stableModProxy.balanceOf(alice);
         uint256 withdrawAmount = stableBalanceOf / 2;
@@ -165,7 +169,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         });
 
         uint256 stableCollateralPerShareAfter = stableModProxy.stableCollateralPerShare();
-        uint256 wethBalanceOfVaultAfter = WETH.balanceOf(address(vaultProxy));
+        uint256 wethBalanceOfVaultAfter = collateralAsset.balanceOf(address(vaultProxy));
 
         assertLt(wethBalanceOfVaultAfter, wethBalanceOfVaultBefore);
         assertEq(
@@ -174,7 +178,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         );
         // Alice's balance should be returned correctly discounting for the margin.
         assertApproxEqAbs(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - (stableDeposit / 2) - (mockKeeperFee.getKeeperFee() * 3) - 120e18,
             0.0000001e18,
             "Alice's balance after half withdrawal incorrect"
@@ -187,7 +191,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         vaultProxy.setSkewFractionMax(10_000e18);
 
         uint256 stableDeposit = 100e18;
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -207,7 +211,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         });
 
         uint256 stableCollateralPerShareBefore = stableModProxy.stableCollateralPerShare();
-        uint256 wethBalanceOfVaultBefore = WETH.balanceOf(address(vaultProxy));
+        uint256 wethBalanceOfVaultBefore = collateralAsset.balanceOf(address(vaultProxy));
 
         uint256 stableBalanceOf = stableModProxy.balanceOf(alice);
         uint256 withdrawAmount = stableBalanceOf / 2;
@@ -221,7 +225,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         });
 
         uint256 stableCollateralPerShareAfter = stableModProxy.stableCollateralPerShare();
-        uint256 wethBalanceOfVaultAfter = WETH.balanceOf(address(vaultProxy));
+        uint256 wethBalanceOfVaultAfter = collateralAsset.balanceOf(address(vaultProxy));
 
         assertLt(wethBalanceOfVaultAfter, wethBalanceOfVaultBefore);
         assertEq(
@@ -230,7 +234,7 @@ contract WithdrawTest is Setup, OrderHelpers, OpenPositionTest {
         );
         // Alice's balance should be returned correctly discounting for the margin.
         assertApproxEqAbs(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - (stableDeposit / 2) - (mockKeeperFee.getKeeperFee() * 3) - 80e18,
             0.0000001e18,
             "Alice's balance after half withdrawal incorrect"

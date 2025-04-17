@@ -1,42 +1,25 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {Setup} from "../../helpers/Setup.sol";
 
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
-import {FlatcoinErrors} from "../../../src/libraries/FlatcoinErrors.sol";
-import {FlatcoinStructs} from "../../../src/libraries/FlatcoinStructs.sol";
+import "../../helpers/OrderHelpers.sol";
 
 import {IPyth} from "pyth-sdk-solidity/IPyth.sol";
 import "src/interfaces/IChainlinkAggregatorV3.sol";
 
 import "forge-std/console2.sol";
 
-contract AdjustPositionInfluence is Setup, OrderHelpers {
+contract AdjustPositionInfluence is OrderHelpers {
     function setUp() public override {
         super.setUp();
 
         vm.startPrank(admin);
 
-        vaultProxy.setMaxFundingVelocity(0.03e18);
+        controllerModProxy.setMaxFundingVelocity(0.03e18);
 
-        FlatcoinStructs.OnchainOracle memory onchainOracle = FlatcoinStructs.OnchainOracle(
-            wethChainlinkAggregatorV3,
-            type(uint32).max // Effectively disable oracle expiry.
-        );
-        FlatcoinStructs.OffchainOracle memory offchainOracle = FlatcoinStructs.OffchainOracle(
-            IPyth(address(mockPyth)),
-            0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace,
-            60, // max age of 60 seconds
-            1000
-        );
-
-        oracleModProxy.setAssetAndOracles({
-            _asset: address(WETH),
-            _onchainOracle: onchainOracle,
-            _offchainOracle: offchainOracle
-        });
+        disableChainlinkExpiry();
     }
 
     function test_adjustPosition_margin_addition_funding_rate_change_stable_skew() public {
@@ -55,7 +38,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         announceOpenLeverage({traderAccount: carol, margin: 25e18, additionalSize: 35e18, keeperFeeAmount: 0});
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
         uint256 tokenId = executeOpenLeverage({
             traderAccount: bob,
@@ -71,7 +54,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         skip(1 days);
 
-        int256 fundingRateBefore = vaultProxy.getCurrentFundingRate();
+        int256 fundingRateBefore = controllerModProxy.currentFundingRate();
 
         // +5 ETH margin of position 2, no change in position size.
         announceAdjustLeverage({
@@ -82,18 +65,26 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(tokenId2);
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         executeAdjustLeverage({keeperAccount: keeper, traderAccount: carol, oraclePrice: collateralPrice});
 
         skip(2 days);
 
-        int256 fundingRateAfter = vaultProxy.getCurrentFundingRate();
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(tokenId2);
+        int256 fundingRateAfter = controllerModProxy.currentFundingRate();
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         assertEq(
             positionSummaryAfter2.marginAfterSettlement,
@@ -135,7 +126,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         announceOpenLeverage({traderAccount: carol, margin: 25e18, additionalSize: 50e18, keeperFeeAmount: 0});
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
         uint256 tokenId = executeOpenLeverage({
             traderAccount: bob,
@@ -151,7 +142,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         skip(1 days);
 
-        int256 fundingRateBefore = vaultProxy.getCurrentFundingRate();
+        int256 fundingRateBefore = controllerModProxy.currentFundingRate();
 
         // +5 ETH margin of position 2, no change in position size.
         announceAdjustLeverage({
@@ -162,18 +153,26 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(tokenId2);
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         executeAdjustLeverage({keeperAccount: keeper, traderAccount: carol, oraclePrice: collateralPrice});
 
         skip(2 days);
 
-        int256 fundingRateAfter = vaultProxy.getCurrentFundingRate();
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(tokenId2);
+        int256 fundingRateAfter = controllerModProxy.currentFundingRate();
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         assertEq(
             positionSummaryAfter2.marginAfterSettlement,
@@ -214,7 +213,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         announceOpenLeverage({traderAccount: carol, margin: 25e18, additionalSize: 35e18, keeperFeeAmount: 0});
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
         uint256 tokenId = executeOpenLeverage({
             traderAccount: bob,
@@ -230,7 +229,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         skip(1 days);
 
-        int256 fundingRateBefore = vaultProxy.getCurrentFundingRate();
+        int256 fundingRateBefore = controllerModProxy.currentFundingRate();
 
         // -5 ETH margin of position 2, no change in position size.
         announceAdjustLeverage({
@@ -241,18 +240,26 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(tokenId2);
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         executeAdjustLeverage({keeperAccount: keeper, traderAccount: carol, oraclePrice: collateralPrice});
 
         skip(2 days);
 
-        int256 fundingRateAfter = vaultProxy.getCurrentFundingRate();
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(tokenId2);
+        int256 fundingRateAfter = controllerModProxy.currentFundingRate();
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         // When reducing the margin, the keeper fee is taken from the margin itself.
         assertEq(
@@ -296,7 +303,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         announceOpenLeverage({traderAccount: carol, margin: 25e18, additionalSize: 50e18, keeperFeeAmount: 0});
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
         uint256 tokenId = executeOpenLeverage({
             traderAccount: bob,
@@ -312,7 +319,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         skip(1 days);
 
-        int256 fundingRateBefore = vaultProxy.getCurrentFundingRate();
+        int256 fundingRateBefore = controllerModProxy.currentFundingRate();
 
         // -5 ETH margin of position 2, no change in position size.
         announceAdjustLeverage({
@@ -323,18 +330,26 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(tokenId2);
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         executeAdjustLeverage({keeperAccount: keeper, traderAccount: carol, oraclePrice: collateralPrice});
 
         skip(2 days);
 
-        int256 fundingRateAfter = vaultProxy.getCurrentFundingRate();
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(tokenId2);
+        int256 fundingRateAfter = controllerModProxy.currentFundingRate();
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         // When reducing the margin, the keeper fee is taken from the margin itself.
         assertEq(
@@ -383,7 +398,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         announceOpenLeverage({traderAccount: carol, margin: 25e18, additionalSize: 25e18, keeperFeeAmount: 0});
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
         uint256 tokenId = executeOpenLeverage({
             traderAccount: bob,
@@ -399,7 +414,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         skip(1 days);
 
-        // int256 fundingRateBefore = vaultProxy.getCurrentFundingRate();
+        // int256 fundingRateBefore = controllerModProxy.currentFundingRate();
 
         // +25 ETH position size of position 2, no change in margin.
         announceAdjustLeverage({
@@ -410,10 +425,14 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(tokenId2);
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         uint256 tradeFee = executeAdjustLeverage({
             keeperAccount: keeper,
@@ -423,9 +442,13 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         skip(2 days);
 
-        // int256 fundingRateAfter = vaultProxy.getCurrentFundingRate();
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(tokenId2);
+        // int256 fundingRateAfter = controllerModProxy.currentFundingRate();
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         assertEq(
             positionSummaryAfter2.marginAfterSettlement,
@@ -473,7 +496,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         announceOpenLeverage({traderAccount: carol, margin: 25e18, additionalSize: 50e18, keeperFeeAmount: 0});
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
         uint256 tokenId = executeOpenLeverage({
             traderAccount: bob,
@@ -498,10 +521,14 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(tokenId2);
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         uint256 tradeFee = executeAdjustLeverage({
             keeperAccount: keeper,
@@ -511,8 +538,12 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         skip(2 days);
 
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(tokenId2);
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         assertEq(
             positionSummaryAfter2.marginAfterSettlement,
@@ -558,7 +589,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         announceOpenLeverage({traderAccount: carol, margin: 25e18, additionalSize: 50e18, keeperFeeAmount: 0});
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
         uint256 tokenId = executeOpenLeverage({
             traderAccount: bob,
@@ -574,7 +605,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         skip(1 days);
 
-        // int256 fundingRateBefore = vaultProxy.getCurrentFundingRate();
+        // int256 fundingRateBefore = controllerModProxy.currentFundingRate();
 
         // +25 ETH position size of position 2, no change in margin.
         announceAdjustLeverage({
@@ -585,10 +616,14 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(tokenId2);
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         uint256 tradeFee = executeAdjustLeverage({
             keeperAccount: keeper,
@@ -598,8 +633,12 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         skip(2 days);
 
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(tokenId2);
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         assertEq(
             positionSummaryAfter2.marginAfterSettlement,
@@ -645,7 +684,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         announceOpenLeverage({traderAccount: carol, margin: 25e18, additionalSize: 60e18, keeperFeeAmount: 0});
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
         uint256 tokenId = executeOpenLeverage({
             traderAccount: bob,
@@ -661,7 +700,7 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         skip(1 days);
 
-        // int256 fundingRateBefore = vaultProxy.getCurrentFundingRate();
+        // int256 fundingRateBefore = controllerModProxy.currentFundingRate();
 
         // +25 ETH position size of position 2, no change in margin.
         announceAdjustLeverage({
@@ -672,10 +711,14 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(tokenId2);
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryBefore2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         uint256 tradeFee = executeAdjustLeverage({
             keeperAccount: keeper,
@@ -685,9 +728,13 @@ contract AdjustPositionInfluence is Setup, OrderHelpers {
 
         skip(2 days);
 
-        // int256 fundingRateAfter = vaultProxy.getCurrentFundingRate();
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(tokenId);
-        FlatcoinStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(tokenId2);
+        // int256 fundingRateAfter = controllerModProxy.currentFundingRate();
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter1 = leverageModProxy.getPositionSummary(
+            tokenId
+        );
+        LeverageModuleStructs.PositionSummary memory positionSummaryAfter2 = leverageModProxy.getPositionSummary(
+            tokenId2
+        );
 
         assertEq(
             positionSummaryAfter2.marginAfterSettlement,

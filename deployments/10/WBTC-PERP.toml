@@ -1,0 +1,34 @@
+[FlatcoinVault]
+proxy = "0x86C7b9640302082B0dF78023F930d8612bFcaD3f"
+
+[LeverageModule]
+proxy = "0x6D857e9D24a7566bB72a3FB0847A3E0e4E1c2879"
+
+[StableModule]
+proxy = "0x357CB23571EF7a3d6189b7FAcFC361eA71f7CAB5"
+
+[PerpControllerModule]
+proxy = "0x59525b9b23ADc475EF91d98dAe06B568BA574Ce5"
+
+[OrderAnnouncementModule]
+proxy = "0xd917A0C9B21Bb71DF1209d2c211Ad83004F01554"
+
+[OrderExecutionModule]
+proxy = "0x7805CB7fb2C2e70FDdF92949065D9Ee1Fc2F72a8"
+
+[LiquidationModule]
+proxy = "0x19471fBB1cC2b633A2A2EaB51e0F8fA2c68a9bC1"
+
+[OPKeeperFee]
+contract = "0xaa13767088E946196e12eC3cE0B0b87CEf987BA3"
+commitHash = "0x69dfa811d2a97a747c542679a385957f84c5d818"
+
+[PerpViewer]
+contract = "0x1F1A5f8c2d133b0c663cf85943B8E73ec143DB16"
+commitHash = "0x9d8377fc964d0edd6e884fbfe7a7a8df7d05198e"
+
+[FlatZapper]
+proxy = "0x6A021Ad8E67B4591846eD1fedE864C94F76f2717"
+implementation = "0x5Cbd6f6674073fc20CF9262bbb4eEa8505C3D6b6"
+proxyAdmin = "0x03dbdF98AE6C9578A3B3CCa3f817922E396E5177"
+commitHash = "0x69dfa811d2a97a747c542679a385957f84c5d818"

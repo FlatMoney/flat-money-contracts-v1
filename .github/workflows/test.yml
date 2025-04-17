@@ -1,0 +1,50 @@
+name: Run Tests
+
+on:
+  pull_request:
+    branches:
+      - master
+    types:
+      - opened
+      - synchronize
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Run Unit Tests
+        run: FOUNDRY_PROFILE=ci forge t --no-match-test '(test_fuzz|test_integration:?)' -vvv
+  
+  integration-tests-base:
+    name: Base Network Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Run Integration Tests
+        env:
+          BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
+          ONEINCH_API_KEY: ${{ secrets.ONEINCH_API_KEY }}
+          ZEROX_API_KEY: ${{ secrets.ZEROX_API_KEY }}
+        run: FOUNDRY_PROFILE=ci forge t --match-test '(test_integration:?)' --match-contract '(?:8453)' -vvv
+    
+  fuzz-tests:
+    name: Fuzz Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Run Fuzz Tests
+        run: FOUNDRY_PROFILE=ci forge t --match-test '(test_fuzz:?)' -vvv

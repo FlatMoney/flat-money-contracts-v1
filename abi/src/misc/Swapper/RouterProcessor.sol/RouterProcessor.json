@@ -1,0 +1,146 @@
+[
+  {
+    "inputs": [],
+    "name": "EmptyPayload",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "returnData",
+        "type": "bytes"
+      }
+    ],
+    "name": "FailedToApproveParaswap",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "routerKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "InvalidAggregator",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "router",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "internalType": "contract IERC20",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "routerKey",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes",
+                "name": "swapData",
+                "type": "bytes"
+              }
+            ],
+            "internalType": "struct AggregatorData",
+            "name": "aggregatorData",
+            "type": "tuple"
+          }
+        ],
+        "internalType": "struct SrcTokenSwapDetails",
+        "name": "srcTokenSwapDetails",
+        "type": "tuple"
+      },
+      {
+        "internalType": "bytes",
+        "name": "returnData",
+        "type": "bytes"
+      }
+    ],
+    "name": "SwapFailed",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "router",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "internalType": "contract IERC20",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "routerKey",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes",
+                "name": "swapData",
+                "type": "bytes"
+              }
+            ],
+            "internalType": "struct AggregatorData",
+            "name": "aggregatorData",
+            "type": "tuple"
+          }
+        ],
+        "indexed": true,
+        "internalType": "struct SrcTokenSwapDetails",
+        "name": "srcTokenSwapDetails",
+        "type": "tuple"
+      }
+    ],
+    "name": "SwapComplete",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "routerKey_",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getRouter",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "routerAddress_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
