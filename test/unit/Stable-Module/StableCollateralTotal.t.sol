@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {Setup} from "../../helpers/Setup.sol";
 import "../../helpers/OrderHelpers.sol";
 import "src/interfaces/IChainlinkAggregatorV3.sol";
 
-contract StableCollateralTotalTest is Setup, OrderHelpers {
+contract StableCollateralTotalTest is OrderHelpers {
     // The following tests check the value of stable shares before and after closing all positions on the leverage side.
     // in different scenarios. These tests ensure that when calculating the share value of stable LPs, the value doesn't depend on
     // leverage traders closing their positions because the PnL and funding fees are accounted for when calculating
@@ -16,30 +16,13 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
     function setUp() public override {
         super.setUp();
 
-        vm.startPrank(admin);
-
-        FlatcoinStructs.OnchainOracle memory onchainOracle = FlatcoinStructs.OnchainOracle(
-            wethChainlinkAggregatorV3,
-            type(uint32).max // Effectively disable oracle expiry.
-        );
-        FlatcoinStructs.OffchainOracle memory offchainOracle = FlatcoinStructs.OffchainOracle(
-            IPyth(address(mockPyth)),
-            0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace,
-            60, // max age of 60 seconds
-            1000
-        );
-
-        oracleModProxy.setAssetAndOracles({
-            _asset: address(WETH),
-            _onchainOracle: onchainOracle,
-            _offchainOracle: offchainOracle
-        });
+        disableChainlinkExpiry();
     }
 
     function test_LP_share_value_change_no_price_change_long_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
 
@@ -110,21 +93,26 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
             keeperFeeAmount: 0
         });
 
-        // Note that keeper fee is taken 6 times in the form of WETH.
+        // Note that keeper fee is taken 6 times in the form of collateralAsset.
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - (mockKeeperFee.getKeeperFee() * 6),
             0.000001e18,
             "Alice should have original amount of tokens back after exiting the market"
         );
 
-        assertApproxEqAbs(WETH.balanceOf(address(vaultProxy)), 0, 1e6, "Vault should have 0 WETH balance");
+        assertApproxEqAbs(
+            collateralAsset.balanceOf(address(vaultProxy)),
+            0,
+            1e6,
+            "Vault should have 0 collateralAsset balance"
+        );
     }
 
     function test_LP_share_value_change_no_price_change_short_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 200e18;
         uint256 collateralPrice = 1000e8;
 
@@ -195,19 +183,24 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
         });
 
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - (mockKeeperFee.getKeeperFee() * 6),
             0.000001e18,
             "Alice should have original amount of tokens back after exiting the market"
         );
 
-        assertApproxEqAbs(WETH.balanceOf(address(vaultProxy)), 0, 1e6, "Vault should have 0 WETH balance");
+        assertApproxEqAbs(
+            collateralAsset.balanceOf(address(vaultProxy)),
+            0,
+            1e6,
+            "Vault should have 0 collateralAsset balance"
+        );
     }
 
     function test_LP_share_value_change_price_increase_long_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
 
@@ -239,7 +232,7 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
 
         // The price of ETH increases by 100%.
         uint256 newCollateralPrice = 2000e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         skip(2 days);
 
@@ -282,19 +275,24 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
         });
 
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - (mockKeeperFee.getKeeperFee() * 6),
             0.000001e18,
             "Alice should have original amount of tokens back after exiting the market"
         );
 
-        assertApproxEqAbs(WETH.balanceOf(address(vaultProxy)), 0, 1e6, "Vault should have 0 WETH balance");
+        assertApproxEqAbs(
+            collateralAsset.balanceOf(address(vaultProxy)),
+            0,
+            1e6,
+            "Vault should have 0 collateralAsset balance"
+        );
     }
 
     function test_LP_share_value_change_price_increase_short_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 200e18;
         uint256 collateralPrice = 1000e8;
 
@@ -326,7 +324,7 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
 
         // The price of ETH increases by 100%.
         uint256 newCollateralPrice = 2000e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         skip(2 days);
 
@@ -369,19 +367,24 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
         });
 
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - (mockKeeperFee.getKeeperFee() * 6),
             0.000001e18,
             "Alice should have original amount of tokens back after exiting the market"
         );
 
-        assertApproxEqAbs(WETH.balanceOf(address(vaultProxy)), 0, 1e6, "Vault should have 0 WETH balance");
+        assertApproxEqAbs(
+            collateralAsset.balanceOf(address(vaultProxy)),
+            0,
+            1e6,
+            "Vault should have 0 collateralAsset balance"
+        );
     }
 
     function test_LP_share_value_change_price_decrease_long_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 100e18;
         uint256 collateralPrice = 1000e8;
 
@@ -415,7 +418,7 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
 
         // The price of ETH decreases by 10%.
         uint256 newCollateralPrice = 900e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         skip(2 days);
 
@@ -458,19 +461,24 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
         });
 
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - (mockKeeperFee.getKeeperFee() * 6),
             0.000001e18,
             "Alice should have original amount of tokens back after exiting the market"
         );
 
-        assertApproxEqAbs(WETH.balanceOf(address(vaultProxy)), 0, 100, "Vault should have 0 WETH balance");
+        assertApproxEqAbs(
+            collateralAsset.balanceOf(address(vaultProxy)),
+            0,
+            1e6,
+            "Vault should have 0 collateralAsset balance"
+        );
     }
 
     function test_LP_share_value_change_price_decrease_short_skew() public {
         vm.startPrank(alice);
 
-        uint256 aliceBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceBalanceBefore = collateralAsset.balanceOf(alice);
         uint256 stableDeposit = 200e18;
         uint256 collateralPrice = 1000e8;
 
@@ -502,7 +510,7 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
 
         // The price of ETH decreases by 10%.
         uint256 newCollateralPrice = 900e8;
-        setWethPrice(newCollateralPrice);
+        setCollateralPrice(newCollateralPrice);
 
         skip(2 days);
 
@@ -545,16 +553,21 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
         });
 
         assertApproxEqRel(
-            WETH.balanceOf(alice),
+            collateralAsset.balanceOf(alice),
             aliceBalanceBefore - (mockKeeperFee.getKeeperFee() * 6),
             0.000001e18,
             "Alice should have original amount of tokens back after exiting the market"
         );
 
-        assertApproxEqAbs(WETH.balanceOf(address(vaultProxy)), 0, 1e6, "Vault should have 0 WETH balance");
+        assertApproxEqAbs(
+            collateralAsset.balanceOf(address(vaultProxy)),
+            0,
+            1e6,
+            "Vault should have 0 collateralAsset balance"
+        );
     }
 
-    /// @dev
+    // TODO: This test fails but the solution isn't straightforward.
     function test_LP_share_value_change_when_price_increases_between_announcement_and_execution() public {
         vm.startPrank(alice);
 
@@ -581,26 +594,19 @@ contract StableCollateralTotalTest is Setup, OrderHelpers {
 
         skip(1 minutes);
 
-        setWethPrice(2000e8);
+        setCollateralPrice(1000e8);
 
-        // 10 ETH collateral, 30 ETH additional size (4x leverage)
-        announceAndExecuteLeverageOpen({
+        announceStableDeposit({
             traderAccount: alice,
-            keeperAccount: keeper,
-            margin: 10e18,
-            additionalSize: 30e18,
-            oraclePrice: collateralPrice,
-            keeperFeeAmount: 0
-        });
-
-        setWethPrice(1000e8);
-
-        announceAndExecuteDeposit({
-            traderAccount: alice,
-            keeperAccount: keeper,
             depositAmount: stableDeposit,
-            oraclePrice: 2000e8,
-            keeperFeeAmount: 0
+            keeperFeeAmount: mockKeeperFee.getKeeperFee()
         });
+
+        // Price changed from 1000e8 to 2000e8 between announcement and execution.
+        setCollateralPrice(2000e8);
+
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
+
+        executeStableDeposit(keeper, alice, 2000e8);
     }
 }

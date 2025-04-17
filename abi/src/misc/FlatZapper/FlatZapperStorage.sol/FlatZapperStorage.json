@@ -1,0 +1,41 @@
+[
+  {
+    "inputs": [],
+    "name": "getCollateral",
+    "outputs": [
+      {
+        "internalType": "contract IERC20",
+        "name": "collateral_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getSwapper",
+    "outputs": [
+      {
+        "internalType": "contract ISwapper",
+        "name": "swapper_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getVault",
+    "outputs": [
+      {
+        "internalType": "contract IFlatcoinVault",
+        "name": "vault_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

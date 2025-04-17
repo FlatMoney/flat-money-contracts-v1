@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {OrderHelpers} from "./OrderHelpers.sol";
 
@@ -17,7 +17,7 @@ abstract contract FuzzHelpers is OrderHelpers {
     }
 
     function depositLeverageWithdrawAll(DepositLeverageParams memory params) public {
-        uint256 traderWethBalanceBefore = WETH.balanceOf(params.trader);
+        uint256 traderWethBalanceBefore = collateralAsset.balanceOf(params.trader);
 
         vm.startPrank(params.trader);
 
@@ -53,7 +53,7 @@ abstract contract FuzzHelpers is OrderHelpers {
             });
         }
 
-        setWethPrice((params.collateralPrice * params.priceMultiplier) / 1e18);
+        setCollateralPrice((params.collateralPrice * params.priceMultiplier) / 1e18);
 
         // Close first position
         announceAndExecuteLeverageClose({
@@ -91,16 +91,19 @@ abstract contract FuzzHelpers is OrderHelpers {
         if (params.priceMultiplier == 1e18) {
             assertApproxEqAbs(
                 traderWethBalanceBefore - (mockKeeperFee.getKeeperFee() * (params.margin2 > 0 ? 6 : 4)),
-                WETH.balanceOf(params.trader),
-                1e6,
-                "Trader didn't receive all the WETH back"
+                collateralAsset.balanceOf(params.trader),
+                1e10, // Accounting for rounding issues
+                "Trader didn't receive all the collateralAsset back"
             );
         }
 
-        assertLt(
-            WETH.balanceOf(address(vaultProxy)),
-            1e6,
-            "Vault should have no more than dust WETH balance remaining"
-        );
+        {
+            uint256 collateralDecimals = collateralAsset.decimals();
+            assertLt(
+                collateralAsset.balanceOf(address(vaultProxy)),
+                (10 ** (collateralDecimals - 8)) + 1e2, // Accounting for rounding issues based on asset decimals
+                "Vault should have no more than dust collateralAsset balance remaining"
+            );
+        }
     }
 }

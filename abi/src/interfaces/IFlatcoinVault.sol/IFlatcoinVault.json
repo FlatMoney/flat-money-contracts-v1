@@ -2,56 +2,6 @@
   {
     "inputs": [
       {
-        "components": [
-          {
-            "internalType": "bytes32",
-            "name": "moduleKey",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "address",
-            "name": "moduleAddress",
-            "type": "address"
-          }
-        ],
-        "internalType": "struct FlatcoinStructs.AuthorizedModule",
-        "name": "_module",
-        "type": "tuple"
-      }
-    ],
-    "name": "addAuthorizedModule",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "components": [
-          {
-            "internalType": "bytes32",
-            "name": "moduleKey",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "address",
-            "name": "moduleAddress",
-            "type": "address"
-          }
-        ],
-        "internalType": "struct FlatcoinStructs.AuthorizedModule[]",
-        "name": "_modules",
-        "type": "tuple[]"
-      }
-    ],
-    "name": "addAuthorizedModules",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "uint256",
         "name": "depositAmount",
         "type": "uint256"
@@ -92,22 +42,9 @@
     "name": "collateral",
     "outputs": [
       {
-        "internalType": "contract IERC20",
+        "internalType": "contract IERC20Metadata",
         "name": "collateral",
         "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "cumulativeFundingRate",
-    "outputs": [
-      {
-        "internalType": "int256",
-        "name": "cumulativeFundingRate",
-        "type": "int256"
       }
     ],
     "stateMutability": "view",
@@ -117,39 +54,13 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_tokenId",
+        "name": "tokenId",
         "type": "uint256"
       }
     ],
     "name": "deletePosition",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getCurrentFundingRate",
-    "outputs": [
-      {
-        "internalType": "int256",
-        "name": "fundingRate",
-        "type": "int256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getCurrentSkew",
-    "outputs": [
-      {
-        "internalType": "int256",
-        "name": "skew",
-        "type": "int256"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -174,9 +85,22 @@
             "type": "uint256"
           }
         ],
-        "internalType": "struct FlatcoinStructs.GlobalPositions",
-        "name": "_globalPositions",
+        "internalType": "struct GlobalPositions",
+        "name": "globalPositions",
         "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getMaxPositionIds",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "openPositionIds",
+        "type": "uint256[]"
       }
     ],
     "stateMutability": "view",
@@ -186,7 +110,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_tokenId",
+        "name": "tokenId",
         "type": "uint256"
       }
     ],
@@ -215,70 +139,8 @@
             "type": "int256"
           }
         ],
-        "internalType": "struct FlatcoinStructs.Position",
+        "internalType": "struct Position",
         "name": "position",
-        "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getVaultSummary",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "int256",
-            "name": "marketSkew",
-            "type": "int256"
-          },
-          {
-            "internalType": "int256",
-            "name": "cumulativeFundingRate",
-            "type": "int256"
-          },
-          {
-            "internalType": "int256",
-            "name": "lastRecomputedFundingRate",
-            "type": "int256"
-          },
-          {
-            "internalType": "uint64",
-            "name": "lastRecomputedFundingTimestamp",
-            "type": "uint64"
-          },
-          {
-            "internalType": "uint256",
-            "name": "stableCollateralTotal",
-            "type": "uint256"
-          },
-          {
-            "components": [
-              {
-                "internalType": "int256",
-                "name": "marginDepositedTotal",
-                "type": "int256"
-              },
-              {
-                "internalType": "uint256",
-                "name": "averagePrice",
-                "type": "uint256"
-              },
-              {
-                "internalType": "uint256",
-                "name": "sizeOpenedTotal",
-                "type": "uint256"
-              }
-            ],
-            "internalType": "struct FlatcoinStructs.GlobalPositions",
-            "name": "globalPositions",
-            "type": "tuple"
-          }
-        ],
-        "internalType": "struct FlatcoinStructs.VaultSummary",
-        "name": "_vaultSummary",
         "type": "tuple"
       }
     ],
@@ -289,7 +151,7 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_address",
+        "name": "module",
         "type": "address"
       }
     ],
@@ -298,6 +160,19 @@
       {
         "internalType": "bool",
         "name": "status",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "isMaxPositionsReached",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "maxPositionsReached",
         "type": "bool"
       }
     ],
@@ -324,13 +199,19 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "lastRecomputedFundingRate",
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "isPositionOpenWhitelisted",
     "outputs": [
       {
-        "internalType": "int256",
-        "name": "lastRecomputedFundingRate",
-        "type": "int256"
+        "internalType": "bool",
+        "name": "whitelisted",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -338,37 +219,11 @@
   },
   {
     "inputs": [],
-    "name": "lastRecomputedFundingTimestamp",
-    "outputs": [
-      {
-        "internalType": "uint64",
-        "name": "lastRecomputedFundingTimestamp",
-        "type": "uint64"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "maxExecutabilityAge",
-    "outputs": [
-      {
-        "internalType": "uint64",
-        "name": "maxExecutabilityAge",
-        "type": "uint64"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "maxFundingVelocity",
+    "name": "maxDeltaError",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "maxFundingVelocity",
+        "name": "maxDeltaError",
         "type": "uint256"
       }
     ],
@@ -377,25 +232,12 @@
   },
   {
     "inputs": [],
-    "name": "maxVelocitySkew",
+    "name": "maxPositions",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "maxVelocitySkew",
+        "name": "maxPositions",
         "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "minExecutabilityAge",
-    "outputs": [
-      {
-        "internalType": "uint64",
-        "name": "minExecutabilityAge",
-        "type": "uint64"
       }
     ],
     "stateMutability": "view",
@@ -405,7 +247,7 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "_moduleKey",
+        "name": "moduleKey",
         "type": "bytes32"
       }
     ],
@@ -418,19 +260,6 @@
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "_moduleKey",
-        "type": "bytes32"
-      }
-    ],
-    "name": "removeAuthorizedModule",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -476,24 +305,17 @@
             "type": "int256"
           }
         ],
-        "internalType": "struct FlatcoinStructs.Position",
-        "name": "_position",
+        "internalType": "struct Position",
+        "name": "position",
         "type": "tuple"
       },
       {
         "internalType": "uint256",
-        "name": "_tokenId",
+        "name": "tokenId",
         "type": "uint256"
       }
     ],
     "name": "setPosition",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "settleFundingFees",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -540,6 +362,19 @@
   {
     "inputs": [
       {
+        "internalType": "int256",
+        "name": "marginDelta",
+        "type": "int256"
+      }
+    ],
+    "name": "updateGlobalMargin",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "price",
         "type": "uint256"
@@ -564,7 +399,7 @@
     "inputs": [
       {
         "internalType": "int256",
-        "name": "_stableCollateralAdjustment",
+        "name": "stableCollateralAdjustment",
         "type": "int256"
       }
     ],

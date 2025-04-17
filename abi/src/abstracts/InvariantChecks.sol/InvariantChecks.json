@@ -1,0 +1,13 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "variableName",
+        "type": "string"
+      }
+    ],
+    "name": "InvariantViolation",
+    "type": "error"
+  }
+]

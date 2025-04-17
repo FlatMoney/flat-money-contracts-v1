@@ -50,6 +50,19 @@
     "type": "event"
   },
   {
+    "inputs": [],
+    "name": "MIN_LIQUIDITY",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "minLiquidity",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -152,9 +165,14 @@
             "internalType": "uint256",
             "name": "minAmountOut",
             "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "announcedBy",
+            "type": "address"
           }
         ],
-        "internalType": "struct FlatcoinStructs.AnnouncedStableDeposit",
+        "internalType": "struct AnnouncedStableDeposit",
         "name": "announcedDeposit",
         "type": "tuple"
       }
@@ -189,7 +207,7 @@
             "type": "uint256"
           }
         ],
-        "internalType": "struct FlatcoinStructs.AnnouncedStableWithdraw",
+        "internalType": "struct AnnouncedStableWithdraw",
         "name": "announcedWithdraw",
         "type": "tuple"
       }
@@ -276,6 +294,67 @@
   {
     "inputs": [
       {
+        "internalType": "uint32",
+        "name": "maxAge",
+        "type": "uint32"
+      },
+      {
+        "internalType": "bool",
+        "name": "priceDiffCheck",
+        "type": "bool"
+      }
+    ],
+    "name": "stableCollateralPerShare",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "collateralPerShare",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "stableCollateralTotalAfterSettlement",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "stableCollateralBalance_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "maxAge",
+        "type": "uint32"
+      },
+      {
+        "internalType": "bool",
+        "name": "priceDiffCheck",
+        "type": "bool"
+      }
+    ],
+    "name": "stableCollateralTotalAfterSettlement",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "stableCollateralBalance",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "depositAmount",
         "type": "uint256"
@@ -286,19 +365,6 @@
       {
         "internalType": "uint256",
         "name": "amountOut",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "stableWithdrawFee",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "stableWithdrawFee",
         "type": "uint256"
       }
     ],
@@ -318,6 +384,11 @@
       {
         "internalType": "uint256",
         "name": "amountOut",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "withdrawalFee",
         "type": "uint256"
       }
     ],

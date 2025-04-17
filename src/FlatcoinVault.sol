@@ -1,59 +1,50 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-import {FlatcoinErrors} from "./libraries/FlatcoinErrors.sol";
-import {FlatcoinStructs} from "./libraries/FlatcoinStructs.sol";
-import {FlatcoinEvents} from "./libraries/FlatcoinEvents.sol";
-import {PerpMath} from "./libraries/PerpMath.sol";
-
+import {ICommonErrors} from "./interfaces/ICommonErrors.sol";
 import {IFlatcoinVault} from "./interfaces/IFlatcoinVault.sol";
+
+import {FeeManager} from "./abstracts/FeeManager.sol";
+
+import "./interfaces/structs/FlatcoinVaultStructs.sol" as FlatcoinVaultStructs;
+import "./interfaces/structs/LeverageModuleStructs.sol" as LeverageModuleStructs;
 
 /// @title FlatcoinVault
 /// @author dHEDGE
 /// @notice Contains state to be reused by different modules of the system.
 /// @dev Holds the stable LP deposits and leverage traders' collateral amounts.
 ///      Also stores other related contract address pointers.
-contract FlatcoinVault is IFlatcoinVault, OwnableUpgradeable {
+contract FlatcoinVault is IFlatcoinVault, OwnableUpgradeable, FeeManager {
     using SafeCast for *;
-    using SafeERC20 for IERC20;
+    using SafeERC20 for IERC20Metadata;
+    using EnumerableSet for EnumerableSet.UintSet;
+
+    /////////////////////////////////////////////
+    //                  Errors                 //
+    /////////////////////////////////////////////
+
+    error MaxPositionsInitZero();
+    error MarginMismatchOnClose();
+    error InsufficientGlobalMargin();
+    error AddressNotWhitelisted(address account);
+    error DepositCapReached(uint256 collateralCap);
+
+    /////////////////////////////////////////////
+    //                  State                  //
+    /////////////////////////////////////////////
 
     /// @notice The collateral token address.
-    IERC20 public collateral;
-
-    /// @notice The last market skew recomputation timestamp.
-    uint64 public lastRecomputedFundingTimestamp;
-
-    /// @notice The minimum time that needs to expire between trade announcement and execution.
-    uint64 public minExecutabilityAge;
-
-    /// @notice The maximum amount of time that can expire between trade announcement and execution.
-    uint64 public maxExecutabilityAge;
-
-    /// @notice The last recomputed funding rate.
-    int256 public lastRecomputedFundingRate;
-
-    /// @notice Sum of funding rate over the entire lifetime of the market.
-    int256 public cumulativeFundingRate;
+    IERC20Metadata public collateral;
 
     /// @notice Total collateral deposited by users minting the flatcoin.
     /// @dev This value is adjusted due to funding fee payments.
     uint256 public stableCollateralTotal;
-
-    /// @notice The maximum funding velocity used to limit the funding rate fluctuations.
-    /// @dev Funding velocity is used for calculating the current funding rate and acts as
-    ///      a limit on how much the funding rate can change between funding re-computations.
-    ///      The units are %/day (1e18 = 100% / day at max or min skew).
-    uint256 public maxFundingVelocity;
-
-    /// @notice The skew percentage at which the funding rate velocity is at its maximum.
-    /// @dev When absolute pSkew > maxVelocitySkew, then funding velocity = maxFundingVelocity.
-    ///      The units are in % (0.1e18 = 10% skew)
-    uint256 public maxVelocitySkew;
 
     /// @notice Maximum cap on the total stable LP deposits.
     uint256 public stableCollateralCap;
@@ -62,6 +53,24 @@ contract FlatcoinVault is IFlatcoinVault, OwnableUpgradeable {
     /// @dev This prevents excessive short skew of stable LPs by capping long trader total open interest.
     ///      Care needs to be taken when increasing this value as it can lead to the stable LPs being excessively short.
     uint256 public skewFractionMax;
+
+    /// @notice The max absolute error value allowed for invariant calculations.
+    /// @dev Primarily used by checks in the `InvariantChecks.sol`.
+    /// @dev Has to be configured as per the collateral token decimals.
+    /// @dev Example, for 18 decimal tokens, we can consider this value to be 1e6.
+    uint256 public maxDeltaError;
+
+    ///  @notice The maximum positions and whitelist below are used for non-linear positions payoffs (eg. Options market)
+    //           because it's not possible to aggregate the total PnL of all the positions in the system.
+    //           Therefore a limit of (eg. 3 positions) is set to prevent the transactions from consuming too much gas.
+    /// @dev The maximum number of open positions. 0 = no cap on the number of open positions
+    uint256 public maxPositions;
+
+    /// @dev Set of tracked open positions when maxPositions > 0
+    EnumerableSet.UintSet internal _maxPositionsSet;
+
+    /// @dev Adresses that are able to open positions
+    mapping(address positionOpenWhitelist => bool whitelisted) internal _maxPositionsWhitelist;
 
     /// @notice Holds mapping between module keys and module addresses.
     ///         A module key is a keccak256 hash of the module name.
@@ -81,15 +90,23 @@ contract FlatcoinVault is IFlatcoinVault, OwnableUpgradeable {
     ///      - calculate the funding rate.
     ///      - calculate the skew.
     ///      - calculate funding fees payments.
-    FlatcoinStructs.GlobalPositions internal _globalPositions;
+    FlatcoinVaultStructs.GlobalPositions internal _globalPositions;
 
     /// @dev Holds mapping between user addresses and their leverage positions.
-    mapping(uint256 tokenId => FlatcoinStructs.Position userPosition) internal _positions;
+    mapping(uint256 tokenId => LeverageModuleStructs.Position userPosition) internal _positions;
+
+    /////////////////////////////////////////////
+    //                Modifiers                //
+    /////////////////////////////////////////////
 
     modifier onlyAuthorizedModule() {
-        if (isAuthorizedModule[msg.sender] == false) revert FlatcoinErrors.OnlyAuthorizedModule(msg.sender);
+        if (isAuthorizedModule[msg.sender] == false) revert ICommonErrors.OnlyAuthorizedModule(msg.sender);
         _;
     }
+
+    /////////////////////////////////////////////
+    //         Initialization Functions        //
+    /////////////////////////////////////////////
 
     /// @dev To prevent the implementation contract from being used, we invoke the _disableInitializers
     ///      function in the constructor to automatically lock it when it is deployed.
@@ -99,38 +116,34 @@ contract FlatcoinVault is IFlatcoinVault, OwnableUpgradeable {
     }
 
     /// @notice Function to initialize this contract.
-    /// @param _collateral The collateral token address.
-    /// @param _maxFundingVelocity The maximum funding velocity used to limit the funding rate fluctuations.
-    /// @param _maxVelocitySkew The skew percentage at which the funding rate velocity is at its maximum.
-    /// @param _skewFractionMax The maximum limit of total leverage long size vs stable LP.
-    /// @param _stableCollateralCap The maximum cap on the total stable LP deposits.
-    /// @param _minExecutabilityAge The minimum time that needs to expire between trade announcement and execution.
-    /// @param _maxExecutabilityAge The maximum amount of time that can expire between trade announcement and execution.
+    /// @param collateral_ The collateral token address.
+    /// @param protocolFeeRecipient_ The address of the protocol fee recipient.
+    /// @param protocolFeePercentage_ The protocol fee percentage.
+    /// @param leverageTradingFee_ The leverage trading fee.
+    /// @param stableWithdrawFee_ The stable LP withdrawal fee.
+    /// @param maxDeltaError_ The max absolute error value allowed for invariant calculations.
+    /// @param skewFractionMax_ The maximum limit of total leverage long size vs stable LP.
+    /// @param stableCollateralCap_ The maximum cap on the total stable LP deposits.
+    /// @param maxPositions_ The maximum number of open positions. Setting to 0 bypasses the max positions check.
     function initialize(
-        IERC20 _collateral,
-        uint256 _maxFundingVelocity,
-        uint256 _maxVelocitySkew,
-        uint256 _skewFractionMax,
-        uint256 _stableCollateralCap,
-        uint64 _minExecutabilityAge,
-        uint64 _maxExecutabilityAge
+        IERC20Metadata collateral_,
+        address protocolFeeRecipient_,
+        uint64 protocolFeePercentage_,
+        uint64 leverageTradingFee_,
+        uint64 stableWithdrawFee_,
+        uint256 maxDeltaError_,
+        uint256 skewFractionMax_,
+        uint256 stableCollateralCap_,
+        uint256 maxPositions_
     ) external initializer {
-        if (address(_collateral) == address(0)) revert FlatcoinErrors.ZeroAddress("collateral");
-        if (_skewFractionMax < 1e18) revert FlatcoinErrors.InvalidSkewFractionMax(_skewFractionMax);
-        if (_maxVelocitySkew > 1e18 || _maxVelocitySkew == 0)
-            revert FlatcoinErrors.InvalidMaxVelocitySkew(_maxVelocitySkew);
-        if (_minExecutabilityAge == 0 || _maxExecutabilityAge == 0)
-            revert FlatcoinErrors.ZeroValue("minExecutabilityAge|maxExecutabilityAge");
-
         __Ownable_init(msg.sender);
+        __FeeManager_init(protocolFeeRecipient_, protocolFeePercentage_, leverageTradingFee_, stableWithdrawFee_);
 
-        collateral = _collateral;
-        maxFundingVelocity = _maxFundingVelocity;
-        maxVelocitySkew = _maxVelocitySkew;
-        stableCollateralCap = _stableCollateralCap;
-        skewFractionMax = _skewFractionMax;
-        minExecutabilityAge = _minExecutabilityAge;
-        maxExecutabilityAge = _maxExecutabilityAge;
+        collateral = collateral_;
+        stableCollateralCap = stableCollateralCap_;
+        skewFractionMax = skewFractionMax_;
+        maxDeltaError = maxDeltaError_;
+        maxPositions = maxPositions_;
     }
 
     /////////////////////////////////////////////
@@ -138,205 +151,170 @@ contract FlatcoinVault is IFlatcoinVault, OwnableUpgradeable {
     /////////////////////////////////////////////
 
     /// @notice Collateral can only be withdrawn by the flatcoin contracts (Delayed Orders, Stable or Leverage module).
-    function sendCollateral(address to, uint256 amount) external onlyAuthorizedModule {
-        collateral.safeTransfer(to, amount);
+    function sendCollateral(address to_, uint256 amount_) external onlyAuthorizedModule {
+        collateral.safeTransfer(to_, amount_);
     }
 
     /// @notice Function to set the position of a leverage trader.
     /// @dev This function is only callable by the authorized modules.
-    /// @param _newPosition The new struct encoded position of the leverage trader.
-    /// @param _tokenId The token ID of the leverage trader.
+    /// @param newPosition_ The new struct encoded position of the leverage trader.
+    /// @param tokenId_ The token ID of the leverage trader.
     function setPosition(
-        FlatcoinStructs.Position calldata _newPosition,
-        uint256 _tokenId
+        LeverageModuleStructs.Position calldata newPosition_,
+        uint256 tokenId_
     ) external onlyAuthorizedModule {
-        _positions[_tokenId] = _newPosition;
+        if (maxPositions > 0) {
+            if (_maxPositionsSet.length() >= maxPositions) revert ICommonErrors.MaxPositionsReached();
+
+            _maxPositionsSet.add(tokenId_);
+        }
+
+        _positions[tokenId_] = newPosition_;
     }
 
     /// @notice Function to delete the position of a leverage trader.
     /// @dev This function is only callable by the authorized modules.
-    /// @param _tokenId The token ID of the leverage trader.
-    function deletePosition(uint256 _tokenId) external onlyAuthorizedModule {
-        delete _positions[_tokenId];
+    /// @param tokenId_ The token ID of the leverage trader.
+    function deletePosition(uint256 tokenId_) external onlyAuthorizedModule {
+        if (maxPositions > 0) _maxPositionsSet.remove(tokenId_);
+
+        delete _positions[tokenId_];
     }
 
     /// @notice Function to update the stable collateral total.
     /// @dev This function is only callable by the authorized modules.
-    ///      When `_stableCollateralAdjustment` is negative, it means that the stable collateral total is decreasing.
-    /// @param _stableCollateralAdjustment The adjustment to the stable collateral total.
-    function updateStableCollateralTotal(int256 _stableCollateralAdjustment) external onlyAuthorizedModule {
-        _updateStableCollateralTotal(_stableCollateralAdjustment);
+    ///      When stableCollateralAdjustment_ is negative, it means that the stable collateral total is decreasing.
+    /// @param stableCollateralAdjustment_ The adjustment to the stable collateral total.
+    function updateStableCollateralTotal(int256 stableCollateralAdjustment_) external onlyAuthorizedModule {
+        _updateStableCollateralTotal(stableCollateralAdjustment_);
+    }
+
+    /// @notice Function to update the global margin by authorized modules.
+    /// @param marginDelta_ The change in the margin deposited total.
+    function updateGlobalMargin(int256 marginDelta_) external onlyAuthorizedModule {
+        // In the worst case scenario that the last position which remained open is underwater,
+        // We set the margin deposited total to negative. Once the underwater position is liquidated,
+        // then the funding fees will be reverted and the total will be positive again.
+        _globalPositions.marginDepositedTotal += marginDelta_;
     }
 
     /// @notice Function to update the global position data.
     /// @dev This function is only callable by the authorized modules.
-    /// @param _price The current price of the underlying asset.
-    /// @param _marginDelta The change in the margin deposited total.
-    /// @param _additionalSizeDelta The change in the size opened total.
+    /// @param price_ The current price of the underlying asset.
+    /// @param marginDelta_ The change in the margin deposited total.
+    /// @param additionalSizeDelta_ The change in the size opened total.
     function updateGlobalPositionData(
-        uint256 _price,
-        int256 _marginDelta,
-        int256 _additionalSizeDelta
+        uint256 price_,
+        int256 marginDelta_,
+        int256 additionalSizeDelta_
     ) external onlyAuthorizedModule {
         // Note that technically, even the funding fees should be accounted for when computing the margin deposited total.
         // However, since the funding fees are settled at the same time as the global position data is updated,
         // we can ignore the funding fees here.
-        int256 newMarginDepositedTotal = _globalPositions.marginDepositedTotal + _marginDelta;
+        int256 newMarginDepositedTotal = _globalPositions.marginDepositedTotal + marginDelta_;
 
         int256 averageEntryPrice = int256(_globalPositions.averagePrice);
         int256 sizeOpenedTotal = int256(_globalPositions.sizeOpenedTotal);
 
         // Recompute the average entry price.
-        if ((sizeOpenedTotal + _additionalSizeDelta) != 0) {
+        if ((sizeOpenedTotal + additionalSizeDelta_) != 0) {
             int256 newAverageEntryPrice = ((averageEntryPrice * sizeOpenedTotal) +
-                (int256(_price) * _additionalSizeDelta)) / (sizeOpenedTotal + _additionalSizeDelta);
+                (int256(price_) * additionalSizeDelta_)) / (sizeOpenedTotal + additionalSizeDelta_);
 
-            _globalPositions = FlatcoinStructs.GlobalPositions({
+            _globalPositions = FlatcoinVaultStructs.GlobalPositions({
                 marginDepositedTotal: newMarginDepositedTotal,
-                sizeOpenedTotal: (int256(_globalPositions.sizeOpenedTotal) + _additionalSizeDelta).toUint256(),
+                sizeOpenedTotal: (int256(_globalPositions.sizeOpenedTotal) + additionalSizeDelta_).toUint256(),
                 averagePrice: uint256(newAverageEntryPrice)
             });
         } else {
-            // Close the last remaining position.
-            if (newMarginDepositedTotal > 1e6) revert FlatcoinErrors.MarginMismatchOnClose();
+            // Add the remaining margin to the stable collateral total.
+            // This is to avoid 'InvariantViolation("collateralNet1")' in the InvariantChecks contract.
+            if (newMarginDepositedTotal > 0) {
+                stableCollateralTotal += uint256(newMarginDepositedTotal);
+            } else {
+                stableCollateralTotal -= uint256(-newMarginDepositedTotal);
+            }
 
             delete _globalPositions;
         }
     }
 
     /////////////////////////////////////////////
-    //            Public Functions             //
-    /////////////////////////////////////////////
-
-    /// @notice Function to settle the funding fees between longs and LPs.
-    /// @dev Anyone can call this function to settle the funding fees.
-    ///      Note If the funding fees is negative, longs pay shorts and vice versa.
-    function settleFundingFees() public {
-        (int256 fundingChangeSinceRecomputed, int256 unrecordedFunding) = _getUnrecordedFunding();
-
-        // Record the funding rate change and update the cumulative funding rate.
-        cumulativeFundingRate = PerpMath._nextFundingEntry(unrecordedFunding, cumulativeFundingRate);
-
-        // Update the latest funding rate and the latest funding recomputation timestamp.
-        lastRecomputedFundingRate += fundingChangeSinceRecomputed;
-        lastRecomputedFundingTimestamp = (block.timestamp).toUint64();
-
-        // Calculate the funding fees accrued to the longs.
-        // This will be used to adjust the global margin and collateral amounts.
-        int256 fundingFees = PerpMath._accruedFundingTotalByLongs(_globalPositions, unrecordedFunding);
-
-        // In the worst case scenario that the last position which remained open is underwater,
-        // We set the margin deposited total to negative. Once the underwater position is liquidated,
-        // then the funding fees will be reverted and the total will be positive again.
-        _globalPositions.marginDepositedTotal = _globalPositions.marginDepositedTotal + fundingFees;
-
-        _updateStableCollateralTotal(-fundingFees);
-
-        emit FlatcoinEvents.FundingFeesSettled(fundingFees);
-    }
-
-    /////////////////////////////////////////////
     //             View Functions              //
     /////////////////////////////////////////////
 
-    /// @notice Function to get a summary of the vault.
-    /// @dev This can be used by modules to get the current state of the vault.
-    /// @return _vaultSummary The vault summary struct.
-    function getVaultSummary() external view returns (FlatcoinStructs.VaultSummary memory _vaultSummary) {
-        return
-            FlatcoinStructs.VaultSummary({
-                marketSkew: int256(_globalPositions.sizeOpenedTotal) - int256(stableCollateralTotal),
-                cumulativeFundingRate: cumulativeFundingRate,
-                lastRecomputedFundingRate: lastRecomputedFundingRate,
-                lastRecomputedFundingTimestamp: lastRecomputedFundingTimestamp,
-                stableCollateralTotal: stableCollateralTotal,
-                globalPositions: _globalPositions
-            });
+    /// @notice Function to check if the account is whitelisted to open positions when maxPositions > 0.
+    function isPositionOpenWhitelisted(address account_) public view returns (bool whitelisted_) {
+        return _maxPositionsWhitelist[account_];
     }
 
-    /// @notice Function to get the current funding rate.
-    /// @dev This can be used by modules to get the current funding rate.
-    /// @return currentFundingRate_ The current funding rate.
-    function getCurrentFundingRate() external view returns (int256 currentFundingRate_) {
-        return
-            PerpMath._currentFundingRate({
-                proportionalSkew: PerpMath._proportionalSkew({
-                    skew: int256(_globalPositions.sizeOpenedTotal) - int256(stableCollateralTotal),
-                    stableCollateralTotal: stableCollateralTotal
-                }),
-                lastRecomputedFundingRate: lastRecomputedFundingRate,
-                lastRecomputedFundingTimestamp: lastRecomputedFundingTimestamp,
-                maxFundingVelocity: maxFundingVelocity,
-                maxVelocitySkew: maxVelocitySkew
-            });
+    /// @notice Function to check if the max positions are reached when maxPositions > 0.
+    function isMaxPositionsReached() public view returns (bool maxReached_) {
+        return maxPositions > 0 && _maxPositionsSet.length() >= maxPositions;
     }
 
-    /// @notice Function to get the position details of associated with a `_tokenId`.
+    /// @notice Returns the position token IDs only if maxPositions > 0.
+    /// @dev Used for non-linear positions payoffs (eg. Options market) where we have to limit the number of open positions.
+    function getMaxPositionIds() external view returns (uint256[] memory openPositionIds_) {
+        return _maxPositionsSet.values();
+    }
+
+    /// @notice Function to get the position details of associated with a `tokenId_`.
     /// @dev This can be used by modules to get the position details of a leverage trader.
-    /// @param _tokenId The token ID of the leverage trader.
-    /// @return _positionDetails The position struct with details.
-    function getPosition(uint256 _tokenId) external view returns (FlatcoinStructs.Position memory _positionDetails) {
-        return _positions[_tokenId];
+    /// @param tokenId_ The token ID of the leverage trader.
+    /// @return positionDetails_ The position struct with details.
+    function getPosition(
+        uint256 tokenId_
+    ) external view returns (LeverageModuleStructs.Position memory positionDetails_) {
+        return _positions[tokenId_];
     }
 
     /// @notice Function to get the global position details.
     /// @dev This can be used by modules to get the global position details.
-    /// @return _globalPositionsDetails The global position struct with details.
+    /// @return globalPositionsDetails_ The global position struct with details.
     function getGlobalPositions()
         external
         view
-        returns (FlatcoinStructs.GlobalPositions memory _globalPositionsDetails)
+        returns (FlatcoinVaultStructs.GlobalPositions memory globalPositionsDetails_)
     {
         return _globalPositions;
     }
 
     /// @notice Asserts that the system will not be too skewed towards longs after additional skew is added (position change).
-    /// @param _sizeChange The proposed change in additional size
-    /// @param _stableCollateralChange The proposed change in the stable collateral
-    function checkSkewMax(uint256 _sizeChange, int256 _stableCollateralChange) public view {
+    /// @param sizeChange_ The proposed change in additional size
+    /// @param stableCollateralChange_ The proposed change in the stable collateral
+    function checkSkewMax(uint256 sizeChange_, int256 stableCollateralChange_) public view {
         // check that skew is not essentially disabled
         if (skewFractionMax < type(uint256).max) {
             uint256 sizeOpenedTotal = _globalPositions.sizeOpenedTotal;
 
-            if (stableCollateralTotal == 0) revert FlatcoinErrors.ZeroValue("stableCollateralTotal");
-            assert(int256(stableCollateralTotal) + _stableCollateralChange >= 0);
+            if (stableCollateralTotal == 0) revert ICommonErrors.ZeroValue("stableCollateralTotal");
+            assert(int256(stableCollateralTotal) + stableCollateralChange_ >= 0);
 
             // if the longs are closed completely then there is no reason to check if long skew has reached max
-            if (sizeOpenedTotal + _sizeChange == 0) return;
+            if (sizeOpenedTotal + sizeChange_ == 0) return;
 
-            uint256 longSkewFraction = (int256((sizeOpenedTotal + _sizeChange) * 1e18) /
-                (int256(stableCollateralTotal) + _stableCollateralChange)).toUint256();
+            uint256 longSkewFraction = (int256((sizeOpenedTotal + sizeChange_) * 1e18) /
+                (int256(stableCollateralTotal) + stableCollateralChange_)).toUint256();
 
-            if (longSkewFraction > skewFractionMax) revert FlatcoinErrors.MaxSkewReached(longSkewFraction);
+            if (longSkewFraction > skewFractionMax) revert ICommonErrors.MaxSkewReached(longSkewFraction);
         }
     }
 
     /// @notice Reverts if the stable LP deposit cap is reached on deposit.
-    /// @param _depositAmount The amount of stable LP tokens to deposit.
-    function checkCollateralCap(uint256 _depositAmount) public view {
+    /// @param depositAmount_ The amount of stable LP tokens to deposit.
+    function checkCollateralCap(uint256 depositAmount_) public view {
         uint256 collateralCap = stableCollateralCap;
 
-        if (stableCollateralTotal + _depositAmount > collateralCap)
-            revert FlatcoinErrors.DepositCapReached(collateralCap);
+        if (stableCollateralTotal + depositAmount_ > collateralCap) revert DepositCapReached(collateralCap);
     }
 
+    /// @notice Function to check if global margin is positive or not.
+    ///         If it isn't positive, then there are positions which are underwater.
     function checkGlobalMarginPositive() public view {
         int256 globalMarginDepositedTotal = _globalPositions.marginDepositedTotal;
 
-        if (globalMarginDepositedTotal < 0) revert FlatcoinErrors.InsufficientGlobalMargin();
-    }
-
-    /// @notice Returns the current skew of the market taking into account unnacrued funding.
-    /// @return _skew The current skew of the market.
-    function getCurrentSkew() external view returns (int256 _skew) {
-        (, int256 unrecordedFunding) = _getUnrecordedFunding();
-        uint256 sizeOpenedTotal = _globalPositions.sizeOpenedTotal;
-
-        return
-            int256(sizeOpenedTotal) -
-            int256(stableCollateralTotal) -
-            (int256(sizeOpenedTotal) * unrecordedFunding) /
-            1e18;
+        if (globalMarginDepositedTotal < 0) revert InsufficientGlobalMargin();
     }
 
     /////////////////////////////////////////////
@@ -345,130 +323,93 @@ contract FlatcoinVault is IFlatcoinVault, OwnableUpgradeable {
 
     /// @notice Setter for the maximum leverage total skew fraction.
     /// @dev This ensures that stable LPs are not too short by capping long trader total open interest.
-    ///      Note that `_skewFractionMax` should include 18 decimals.
-    /// @param _skewFractionMax The maximum limit of total leverage long size vs stable LP.
-    function setSkewFractionMax(uint256 _skewFractionMax) public onlyOwner {
-        if (_skewFractionMax < 1e18) revert FlatcoinErrors.InvalidSkewFractionMax(_skewFractionMax);
-
-        skewFractionMax = _skewFractionMax;
-    }
-
-    /// @notice Setter for the maximum funding velocity.
-    /// @param _newMaxFundingVelocity The maximum funding velocity used to limit the funding rate fluctuations.
-    /// @dev NOTE: `_newMaxFundingVelocity` should include 18 decimals.
-    function setMaxFundingVelocity(uint256 _newMaxFundingVelocity) public onlyOwner {
-        settleFundingFees(); // settle funding fees before updating the max funding velocity so that positions are not affected by the change
-        maxFundingVelocity = _newMaxFundingVelocity;
-    }
-
-    /// @notice Setter for the maximum funding velocity skew.
-    /// @param _newMaxVelocitySkew The skew percentage at which the funding rate velocity is at its maximum.
-    /// @dev NOTE: `_newMaxVelocitySkew` should include 18 decimals.
-    function setMaxVelocitySkew(uint256 _newMaxVelocitySkew) public onlyOwner {
-        if (_newMaxVelocitySkew > 1e18 || _newMaxVelocitySkew == 0)
-            revert FlatcoinErrors.InvalidMaxVelocitySkew(_newMaxVelocitySkew);
-
-        settleFundingFees(); // settle funding fees before updating the max velocity skew so that positions are not affected by the change
-        maxVelocitySkew = _newMaxVelocitySkew;
+    ///      Note that `skewFractionMax_` should include 18 decimals.
+    /// @param skewFractionMax_ The maximum limit of total leverage long size vs stable LP.
+    function setSkewFractionMax(uint256 skewFractionMax_) external onlyOwner {
+        skewFractionMax = skewFractionMax_;
     }
 
     /// @notice Function to add multiple authorized modules.
     /// @dev NOTE: This function can overwrite an existing authorized module.
-    /// @param _modules The array of authorized modules to add.
-    function addAuthorizedModules(FlatcoinStructs.AuthorizedModule[] calldata _modules) external onlyOwner {
-        uint8 modulesLength = uint8(_modules.length);
+    /// @param modules_ The array of authorized modules to add.
+    function addAuthorizedModules(FlatcoinVaultStructs.AuthorizedModule[] calldata modules_) external onlyOwner {
+        uint8 modulesLength = uint8(modules_.length);
 
         for (uint8 i; i < modulesLength; ++i) {
-            addAuthorizedModule(_modules[i]);
+            addAuthorizedModule(modules_[i]);
         }
     }
 
-    /// @notice Function to set an authorized module.
-    /// @dev NOTE: This function can overwrite an existing authorized module.
-    /// @param _module The authorized module to add.
-    function addAuthorizedModule(FlatcoinStructs.AuthorizedModule calldata _module) public onlyOwner {
-        if (_module.moduleAddress == address(0)) revert FlatcoinErrors.ZeroAddress("moduleAddress");
-        if (_module.moduleKey == bytes32(0)) revert FlatcoinErrors.ZeroValue("moduleKey");
-
-        moduleAddress[_module.moduleKey] = _module.moduleAddress;
-        isAuthorizedModule[_module.moduleAddress] = true;
-    }
-
     /// @notice Function to remove an authorized module.
-    /// @param _modKey The module key of the module to remove.
-    function removeAuthorizedModule(bytes32 _modKey) public onlyOwner {
-        address modAddress = moduleAddress[_modKey];
+    /// @param modKey_ The module key of the module to remove.
+    function removeAuthorizedModule(bytes32 modKey_) external onlyOwner {
+        address modAddress = moduleAddress[modKey_];
 
-        delete moduleAddress[_modKey];
+        delete moduleAddress[modKey_];
         delete isAuthorizedModule[modAddress];
     }
 
     /// @notice Function to pause the module
-    /// @param _moduleKey The module key of the module to pause.
-    function pauseModule(bytes32 _moduleKey) external onlyOwner {
-        isModulePaused[_moduleKey] = true;
+    /// @param moduleKey_ The module key of the module to pause.
+    function pauseModule(bytes32 moduleKey_) external onlyOwner {
+        isModulePaused[moduleKey_] = true;
     }
 
     /// @notice Function to unpause the critical functions
-    /// @param _moduleKey The module key of the module to unpause.
-    function unpauseModule(bytes32 _moduleKey) external onlyOwner {
-        isModulePaused[_moduleKey] = false;
+    /// @param moduleKey_ The module key of the module to unpause.
+    function unpauseModule(bytes32 moduleKey_) external onlyOwner {
+        isModulePaused[moduleKey_] = false;
     }
 
     /// @notice Setter for the stable collateral cap.
-    /// @param _collateralCap The maximum cap on the total stable LP deposits.
-    function setStableCollateralCap(uint256 _collateralCap) public onlyOwner {
-        stableCollateralCap = _collateralCap;
+    /// @param collateralCap_ The maximum cap on the total stable LP deposits.
+    function setStableCollateralCap(uint256 collateralCap_) external onlyOwner {
+        stableCollateralCap = collateralCap_;
     }
 
-    /// @notice Setter for the minimum and maximum time delayed executatibility
-    /// @dev The maximum executability timer starts after the minimum time has elapsed
-    /// @param _minExecutabilityAge The minimum time that needs to expire between trade announcement and execution.
-    /// @param _maxExecutabilityAge The maximum amount of time that can expire between trade announcement and execution.
-    function setExecutabilityAge(uint64 _minExecutabilityAge, uint64 _maxExecutabilityAge) public onlyOwner {
-        if (_minExecutabilityAge == 0 || _maxExecutabilityAge == 0)
-            revert FlatcoinErrors.ZeroValue("minExecutabilityAge|maxExecutabilityAge");
+    /// @notice Function to set an authorized module.
+    /// @dev NOTE: This function can overwrite an existing authorized module.
+    /// @param module_ The authorized module to add.
+    function addAuthorizedModule(FlatcoinVaultStructs.AuthorizedModule calldata module_) public onlyOwner {
+        if (module_.moduleAddress == address(0)) revert ICommonErrors.ZeroAddress("moduleAddress");
+        if (module_.moduleKey == bytes32(0)) revert ICommonErrors.ZeroValue("moduleKey");
 
-        minExecutabilityAge = _minExecutabilityAge;
-        maxExecutabilityAge = _maxExecutabilityAge;
+        moduleAddress[module_.moduleKey] = module_.moduleAddress;
+        isAuthorizedModule[module_.moduleAddress] = true;
+    }
+
+    /// @notice Setter for the max absolute error value allowed for invariant calculations.
+    /// @param maxDeltaError_ The new max absolute error value allowed for invariant calculations.
+    function setMaxDeltaError(uint256 maxDeltaError_) external onlyOwner {
+        maxDeltaError = maxDeltaError_;
+    }
+
+    /// @notice Function to set the maximum number of open positions.
+    /// @dev This should be set at initialisation and not settable from 0 after deployment.
+    function setMaxPositions(uint256 maxPositions_) external onlyOwner {
+        if (maxPositions_ == 0) revert ICommonErrors.ZeroValue("maxPositions_");
+        if (maxPositions == 0 && stableCollateralTotal > 0) revert MaxPositionsInitZero(); // cannot create max positions if it was set to 0 initially and positions opened already
+        if (_maxPositionsSet.length() > maxPositions_) revert ICommonErrors.MaxPositionsReached(); // need to burn existing position(s) to decrease max positions
+
+        maxPositions = maxPositions_;
+    }
+
+    /// @notice Function to set the positions open whitelist when a maximum is set.
+    /// @dev Only works if the maxPositions is set to > 0 during market initialisation.
+    function setMaxPositionsWhitelist(address account_, bool whitelisted_) external onlyOwner {
+        _maxPositionsWhitelist[account_] = whitelisted_;
     }
 
     /////////////////////////////////////////////
     //             Private Functions           //
     /////////////////////////////////////////////
-
-    function _updateStableCollateralTotal(int256 _stableCollateralAdjustment) private {
-        int256 newStableCollateralTotal = int256(stableCollateralTotal) + _stableCollateralAdjustment;
+    function _updateStableCollateralTotal(int256 stableCollateralAdjustment_) private {
+        int256 newStableCollateralTotal = int256(stableCollateralTotal) + stableCollateralAdjustment_;
 
         // The stable collateral shouldn't be negative as the other calculations which depend on this
         // will behave in unexpected manners.
-        if (newStableCollateralTotal < 0) revert FlatcoinErrors.ValueNotPositive("stableCollateralTotal");
+        if (newStableCollateralTotal < 0) revert ICommonErrors.ValueNotPositive("stableCollateralTotal");
 
         stableCollateralTotal = newStableCollateralTotal.toUint256();
-    }
-
-    /// @dev Function to calculate the unrecorded funding amount.
-    function _getUnrecordedFunding()
-        private
-        view
-        returns (int256 fundingChangeSinceRecomputed, int256 unrecordedFunding)
-    {
-        int256 proportionalSkew = PerpMath._proportionalSkew({
-            skew: int256(_globalPositions.sizeOpenedTotal) - int256(stableCollateralTotal),
-            stableCollateralTotal: stableCollateralTotal
-        });
-
-        fundingChangeSinceRecomputed = PerpMath._fundingChangeSinceRecomputed({
-            proportionalSkew: proportionalSkew,
-            prevFundingModTimestamp: lastRecomputedFundingTimestamp,
-            maxFundingVelocity: maxFundingVelocity,
-            maxVelocitySkew: maxVelocitySkew
-        });
-
-        unrecordedFunding = PerpMath._unrecordedFunding({
-            currentFundingRate: fundingChangeSinceRecomputed + lastRecomputedFundingRate,
-            prevFundingRate: lastRecomputedFundingRate,
-            prevFundingModTimestamp: lastRecomputedFundingTimestamp
-        });
     }
 }

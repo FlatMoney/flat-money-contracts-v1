@@ -1,0 +1,18 @@
+# Config for contracts used across all markets on a network.
+# Create configs with keys matching the contract/module name.
+# Each module should have a `isUpgradeable` key and a `proxyType` key.
+# The only valid value for `proxyType` for common contracts is "transparent".
+
+[OracleModule]
+isUpgradeable = true
+proxyType = "transparent"
+owner = "0x1677640787891022efEC86828BC386828c68d2aA"        # Should be a Gnosis Safe multisig to use other scripts.
+pythContract = "0xff1a0f4744e8582DF1aE09D5611b887B6a12925C" # Pyth Arbitrum contract
+
+[Swapper]
+isUpgradeable = true
+owner = "0x1677640787891022efEC86828BC386828c68d2aA"   # Should be a Gnosis Safe multisig to use other scripts.
+proxyType = "transparent"
+permit2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3" # As found in https://blog.uniswap.org/permit2-and-universal-router
+weth = "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"    # WETH on Arbitrum
+

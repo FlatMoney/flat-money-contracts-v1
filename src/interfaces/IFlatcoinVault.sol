@@ -1,69 +1,55 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {FlatcoinStructs} from "../libraries/FlatcoinStructs.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/interfaces/IERC20Metadata.sol";
+
+import "./structs/FlatcoinVaultStructs.sol" as FlatcoinVaultStructs;
+import "./structs/LeverageModuleStructs.sol" as LeverageModuleStructs;
 
 interface IFlatcoinVault {
-    function collateral() external view returns (IERC20 collateral);
-
-    function lastRecomputedFundingTimestamp() external view returns (uint64 lastRecomputedFundingTimestamp);
-
-    function minExecutabilityAge() external view returns (uint64 minExecutabilityAge);
-
-    function maxExecutabilityAge() external view returns (uint64 maxExecutabilityAge);
-
-    function lastRecomputedFundingRate() external view returns (int256 lastRecomputedFundingRate);
-
-    function cumulativeFundingRate() external view returns (int256 cumulativeFundingRate);
-
-    function maxFundingVelocity() external view returns (uint256 maxFundingVelocity);
-
-    function maxVelocitySkew() external view returns (uint256 maxVelocitySkew);
+    function collateral() external view returns (IERC20Metadata collateral);
 
     function stableCollateralTotal() external view returns (uint256 totalAmount);
 
+    function stableCollateralCap() external view returns (uint256 collateralCap);
+
     function skewFractionMax() external view returns (uint256 skewFractionMax);
 
-    function moduleAddress(bytes32 _moduleKey) external view returns (address moduleAddress);
+    function maxDeltaError() external view returns (uint256 maxDeltaError);
 
-    function isAuthorizedModule(address _address) external view returns (bool status);
+    function maxPositions() external view returns (uint256 maxPositions);
+
+    function moduleAddress(bytes32 moduleKey) external view returns (address moduleAddress);
+
+    function isAuthorizedModule(address module) external view returns (bool status);
 
     function isModulePaused(bytes32 moduleKey) external view returns (bool paused);
 
     function sendCollateral(address to, uint256 amount) external;
 
-    function getVaultSummary() external view returns (FlatcoinStructs.VaultSummary memory _vaultSummary);
+    function setPosition(LeverageModuleStructs.Position memory position, uint256 tokenId) external;
 
-    function getGlobalPositions() external view returns (FlatcoinStructs.GlobalPositions memory _globalPositions);
+    function deletePosition(uint256 tokenId) external;
 
-    function setPosition(FlatcoinStructs.Position memory _position, uint256 _tokenId) external;
+    function updateStableCollateralTotal(int256 stableCollateralAdjustment) external;
+
+    function updateGlobalMargin(int256 marginDelta) external;
 
     function updateGlobalPositionData(uint256 price, int256 marginDelta, int256 additionalSizeDelta) external;
 
-    function updateStableCollateralTotal(int256 _stableCollateralAdjustment) external;
+    function isPositionOpenWhitelisted(address account) external view returns (bool whitelisted);
 
-    function addAuthorizedModules(FlatcoinStructs.AuthorizedModule[] calldata _modules) external;
+    function isMaxPositionsReached() external view returns (bool maxPositionsReached);
 
-    function addAuthorizedModule(FlatcoinStructs.AuthorizedModule calldata _module) external;
+    function getMaxPositionIds() external view returns (uint256[] memory openPositionIds);
 
-    function removeAuthorizedModule(bytes32 _moduleKey) external;
+    function getPosition(uint256 tokenId) external view returns (LeverageModuleStructs.Position memory position);
 
-    function deletePosition(uint256 _tokenId) external;
-
-    function settleFundingFees() external;
-
-    function getCurrentFundingRate() external view returns (int256 fundingRate);
-
-    function getPosition(uint256 _tokenId) external view returns (FlatcoinStructs.Position memory position);
+    function getGlobalPositions() external view returns (FlatcoinVaultStructs.GlobalPositions memory globalPositions);
 
     function checkSkewMax(uint256 sizeChange, int256 stableCollateralChange) external view;
 
     function checkCollateralCap(uint256 depositAmount) external view;
 
     function checkGlobalMarginPositive() external view;
-
-    function stableCollateralCap() external view returns (uint256 collateralCap);
-
-    function getCurrentSkew() external view returns (int256 skew);
 }

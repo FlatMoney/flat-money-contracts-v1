@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import {ModuleUpgradeable} from "./abstracts/ModuleUpgradeable.sol";
 import {OracleModifiers} from "./abstracts/OracleModifiers.sol";
-import {FlatcoinErrors} from "./libraries/FlatcoinErrors.sol";
-import {FlatcoinStructs} from "./libraries/FlatcoinStructs.sol";
-import {FlatcoinModuleKeys} from "./libraries/FlatcoinModuleKeys.sol";
-import {FlatcoinEvents} from "./libraries/FlatcoinEvents.sol";
-import {PerpMath} from "./libraries/PerpMath.sol";
-import {InvariantChecks} from "./misc/InvariantChecks.sol";
 
+import {FlatcoinModuleKeys} from "./libraries/FlatcoinModuleKeys.sol";
+import {DecimalMath} from "./libraries/DecimalMath.sol";
+import {InvariantChecks} from "./abstracts/InvariantChecks.sol";
+
+import {ICommonErrors} from "./interfaces/ICommonErrors.sol";
 import {IFlatcoinVault} from "./interfaces/IFlatcoinVault.sol";
+import {IControllerModule} from "./interfaces/IControllerModule.sol";
 import {ILeverageModule} from "./interfaces/ILeverageModule.sol";
 import {IOracleModule} from "./interfaces/IOracleModule.sol";
 import {ILiquidationModule} from "./interfaces/ILiquidationModule.sol";
-import {ILimitOrder} from "./interfaces/ILimitOrder.sol";
+
+import "./interfaces/structs/LeverageModuleStructs.sol" as LeverageModuleStructs;
 
 /// @title LiquidationModule
 /// @author dHEDGE
@@ -28,6 +29,35 @@ contract LiquidationModule is
     ReentrancyGuardUpgradeable,
     InvariantChecks
 {
+    using DecimalMath for int256;
+    using DecimalMath for uint256;
+
+    /////////////////////////////////////////////
+    //                Events                   //
+    /////////////////////////////////////////////
+
+    event LiquidationFeeRatioModified(uint256 oldRatio, uint256 newRatio);
+    event LiquidationBufferRatioModified(uint256 oldRatio, uint256 newRatio);
+    event LiquidationFeeBoundsModified(uint256 oldMin, uint256 oldMax, uint256 newMin, uint256 newMax);
+    event PositionLiquidated(
+        uint256 tokenId,
+        address liquidator,
+        uint256 liquidationFee,
+        uint256 closePrice,
+        LeverageModuleStructs.PositionSummary positionSummary
+    );
+
+    /////////////////////////////////////////////
+    //                Errors                   //
+    /////////////////////////////////////////////
+
+    error CannotLiquidate(uint256 tokenId);
+    error InvalidBounds(uint256 lower, uint256 upper);
+
+    /////////////////////////////////////////////
+    //                State                    //
+    /////////////////////////////////////////////
+
     /// @notice Liquidation fee basis points paid to liquidator.
     /// @dev Note that this needs to be used together with keeper fee bounds.
     /// @dev Should include 18 decimals i.e, 0.2% => 0.002e18 => 2e15
@@ -45,6 +75,10 @@ contract LiquidationModule is
     /// @dev Denominated in USD.
     uint256 public liquidationFeeLowerBound;
 
+    /////////////////////////////////////////////
+    //         Initialization Functions        //
+    /////////////////////////////////////////////
+
     /// @dev To prevent the implementation contract from being used, we invoke the _disableInitializers
     ///      function in the constructor to automatically lock it when it is deployed.
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -53,70 +87,254 @@ contract LiquidationModule is
     }
 
     function initialize(
-        IFlatcoinVault _vault,
-        uint128 _liquidationFeeRatio,
-        uint128 _liquidationBufferRatio,
-        uint256 _liquidationFeeLowerBound,
-        uint256 _liquidationFeeUpperBound
+        IFlatcoinVault vault_,
+        uint128 liquidationFeeRatio_,
+        uint128 liquidationBufferRatio_,
+        uint256 liquidationFeeLowerBound_,
+        uint256 liquidationFeeUpperBound_
     ) external initializer {
-        __Module_init(FlatcoinModuleKeys._LIQUIDATION_MODULE_KEY, _vault);
+        __Module_init(FlatcoinModuleKeys._LIQUIDATION_MODULE_KEY, vault_);
         __ReentrancyGuard_init();
 
-        setLiquidationFeeRatio(_liquidationFeeRatio);
-        setLiquidationBufferRatio(_liquidationBufferRatio);
-        setLiquidationFeeBounds(_liquidationFeeLowerBound, _liquidationFeeUpperBound);
+        _setLiquidationFeeRatio(liquidationFeeRatio_);
+        _setLiquidationBufferRatio(liquidationBufferRatio_);
+        _setLiquidationFeeBounds(liquidationFeeLowerBound_, liquidationFeeUpperBound_);
     }
 
     /////////////////////////////////////////////
     //         Public Write Functions          //
     /////////////////////////////////////////////
 
+    /// @notice Function to liquidate a position after Pyth price update.
+    /// @dev WARNING: Kept here for backwards compatibility, will be deprecated soon.
+    /// @param tokenID_ The token ID of the leverage position.
+    /// @param priceUpdateData_ The price update data to be used for updating the Pyth price.
     function liquidate(
-        uint256 tokenID,
-        bytes[] calldata priceUpdateData
-    ) external payable updatePythPrice(vault, msg.sender, priceUpdateData) {
-        liquidate(tokenID);
+        uint256 tokenID_,
+        bytes[] calldata priceUpdateData_
+    ) external payable updatePythPrice(vault, msg.sender, priceUpdateData_) {
+        liquidate(tokenID_);
     }
 
-    /// @notice Function to liquidate a position.
-    /// @dev One could directly call this method instead of `liquidate(uint256, bytes[])` if they don't want to update the Pyth price.
-    /// @param tokenId The token ID of the leverage position.
-    function liquidate(uint256 tokenId) public nonReentrant whenNotPaused liquidationInvariantChecks(vault, tokenId) {
-        FlatcoinStructs.Position memory position = vault.getPosition(tokenId);
+    /// @notice Function to liquidate a position without Pyth price update.
+    /// @dev WARNING: Kept here for backwards compatibility, will be deprecated soon.
+    /// @param tokenID_ The token ID of the leverage position.
+    function liquidate(uint256 tokenID_) public {
+        uint256[] memory tokenIdArr = new uint256[](1);
+        tokenIdArr[0] = tokenID_;
 
+        tokenIdArr = liquidate(tokenIdArr);
+
+        if (tokenIdArr.length != 1) revert CannotLiquidate(tokenID_);
+    }
+
+    /// @notice Function to liquidate multiple positions after Pyth price update.
+    /// @param tokenID_ The token ID of the leverage position.
+    /// @param priceUpdateData_ The price update data to be used for updating the Pyth price.
+    /// @return liquidatedIds_ The token IDs of the liquidated positions.
+    function liquidate(
+        uint256[] calldata tokenID_,
+        bytes[] calldata priceUpdateData_
+    ) external payable updatePythPrice(vault, msg.sender, priceUpdateData_) returns (uint256[] memory liquidatedIds_) {
+        return liquidate(tokenID_);
+    }
+
+    /// @notice Function to liquidate multiple positions without Pyth price update.
+    /// @param tokenID_ The token ID of the leverage position.
+    /// @return liquidatedIds_ The token IDs of the liquidated positions.
+    function liquidate(
+        uint256[] memory tokenID_
+    ) public nonReentrant whenNotPaused returns (uint256[] memory liquidatedIds_) {
         (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice({
+            asset: address(vault.collateral()),
             maxAge: 86_400,
             priceDiffCheck: true
         });
 
         // Settle funding fees accrued till now.
-        vault.settleFundingFees();
+        IControllerModule(vault.moduleAddress(FlatcoinModuleKeys._CONTROLLER_MODULE_KEY)).settleFundingFees();
 
-        // Check if the position can indeed be liquidated.
-        if (!canLiquidate(tokenId)) revert FlatcoinErrors.CannotLiquidate(tokenId);
+        liquidatedIds_ = new uint256[](tokenID_.length);
+        uint256 counter;
 
-        FlatcoinStructs.PositionSummary memory positionSummary = PerpMath._getPositionSummary(
+        for (uint256 i; i < tokenID_.length; ++i) {
+            if (canLiquidate(tokenID_[i], currentPrice)) {
+                _processLiquidation(tokenID_[i], currentPrice);
+
+                liquidatedIds_[counter] = tokenID_[i];
+                ++counter;
+            }
+        }
+
+        uint256 reduceLength = tokenID_.length - counter;
+
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            mstore(liquidatedIds_, sub(mload(liquidatedIds_), reduceLength))
+        }
+    }
+
+    /////////////////////////////////////////////
+    //             View Functions              //
+    /////////////////////////////////////////////
+
+    /// @notice Function which determines if a leverage position can be liquidated or not.
+    /// @param tokenId_ The token ID of the leverage position.
+    /// @return liquidatable_ True if the position can be liquidated, false otherwise.
+    function canLiquidate(uint256 tokenId_) public view returns (bool liquidatable_) {
+        // Get the current price from the oracle module.
+        (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice(
+            address(vault.collateral())
+        );
+
+        return canLiquidate(tokenId_, currentPrice);
+    }
+
+    /// @param tokenId_ The token ID of the leverage position.
+    /// @param price_ The current price of the collateral asset.
+    function canLiquidate(uint256 tokenId_, uint256 price_) public view returns (bool liquidatable_) {
+        LeverageModuleStructs.Position memory position = vault.getPosition(tokenId_);
+
+        // No liquidations of empty positions.
+        if (position.additionalSize == 0) {
+            return false;
+        }
+
+        LeverageModuleStructs.PositionSummary memory positionSummary = ILeverageModule(
+            vault.moduleAddress(FlatcoinModuleKeys._LEVERAGE_MODULE_KEY)
+        ).getPositionSummary(position, price_);
+
+        uint256 lMargin = getLiquidationMargin(position.additionalSize, price_);
+
+        return positionSummary.marginAfterSettlement <= int256(lMargin);
+    }
+
+    /// @notice Function to calculate the liquidation fee awarded for a liquidating a given position.
+    /// @param tokenId_ The token ID of the leverage position.
+    /// @return liquidationFee_ The liquidation fee in collateral units.
+    function getLiquidationFee(uint256 tokenId_) public view returns (uint256 liquidationFee_) {
+        // Get the latest price from the oracle module.
+        (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice(
+            address(vault.collateral())
+        );
+
+        return getLiquidationFee(vault.getPosition(tokenId_).additionalSize, currentPrice);
+    }
+
+    /// @notice Function to calculate the liquidation margin for a given additional size amount.
+    /// @param additionalSize_ The additional size amount for which the liquidation margin is to be calculated.
+    /// @return liquidationMargin_ The liquidation margin in collateral units.
+    function getLiquidationMargin(uint256 additionalSize_) public view returns (uint256 liquidationMargin_) {
+        // Get the latest price from the oracle module.
+        (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice(
+            address(vault.collateral())
+        );
+
+        return getLiquidationMargin(additionalSize_, currentPrice);
+    }
+
+    /// @notice The minimal margin at which liquidation can happen.
+    ///      Is the sum of liquidationBuffer, liquidationFee (for flagger) and keeperLiquidationFee (for liquidator)
+    ///      The liquidation margin contains a buffer that is proportional to the position
+    ///      size. The buffer should prevent liquidation happening at negative margin (due to next price being worse).
+    /// @param positionSize_ size of position in fixed point decimal collateral asset units.
+    /// @param currentPrice_ current price of the collateral asset in USD units.
+    /// @return lMargin_ liquidation margin to maintain in collateral asset units.
+    function getLiquidationMargin(uint256 positionSize_, uint256 currentPrice_) public view returns (uint256 lMargin_) {
+        uint256 liquidationBuffer = positionSize_._multiplyDecimal(liquidationBufferRatio);
+
+        // The liquidation margin consists of the liquidation buffer, liquidation fee and the keeper fee for covering execution costs.
+        return liquidationBuffer + getLiquidationFee(positionSize_, currentPrice_);
+    }
+
+    /// The fee charged from the margin during liquidation. Fee is proportional to position size.
+    /// @dev There is a cap on the fee to prevent liquidators from being overpayed.
+    /// @param positionSize_ size of position in fixed point decimal baseAsset units.
+    /// @param currentPrice_ current price of the collateral asset in USD units.
+    /// @return liqFee_ liquidation fee to be paid to liquidator in collateral asset units.
+    function getLiquidationFee(uint256 positionSize_, uint256 currentPrice_) public view returns (uint256 liqFee_) {
+        uint8 collateralDecimals = vault.collateral().decimals();
+
+        // size(collateral decimals) * price(18 decimals) * fee-ratio(18 decimals) * 1e18 / (10^(collateral decimals)) => proportionalFee(18 decimals)
+        uint256 proportionalFee = positionSize_
+            ._multiplyDecimal(liquidationFeeRatio)
+            ._multiplyDecimal(currentPrice_)
+            ._divideDecimal(10 ** (collateralDecimals));
+
+        uint256 cappedProportionalFee = proportionalFee > liquidationFeeUpperBound
+            ? liquidationFeeUpperBound
+            : proportionalFee;
+
+        uint256 lFeeUSD = cappedProportionalFee < liquidationFeeLowerBound
+            ? liquidationFeeLowerBound
+            : cappedProportionalFee;
+
+        // Return liquidation fee in collateral asset units.
+        return (lFeeUSD * (10 ** collateralDecimals)) / currentPrice_;
+    }
+
+    /////////////////////////////////////////////
+    //        Internal/Private Functions       //
+    /////////////////////////////////////////////
+
+    function _setLiquidationFeeRatio(uint128 newLiquidationFeeRatio_) private {
+        if (newLiquidationFeeRatio_ == 0) revert ICommonErrors.ZeroValue("newLiquidationFeeRatio");
+
+        emit LiquidationFeeRatioModified(liquidationFeeRatio, newLiquidationFeeRatio_);
+
+        liquidationFeeRatio = newLiquidationFeeRatio_;
+    }
+
+    function _setLiquidationBufferRatio(uint128 newLiquidationBufferRatio_) private {
+        if (newLiquidationBufferRatio_ == 0) revert ICommonErrors.ZeroValue("newLiquidationBufferRatio");
+
+        emit LiquidationBufferRatioModified(liquidationBufferRatio, newLiquidationBufferRatio_);
+
+        liquidationBufferRatio = newLiquidationBufferRatio_;
+    }
+
+    function _setLiquidationFeeBounds(
+        uint256 newLiquidationFeeLowerBound_,
+        uint256 newLiquidationFeeUpperBound_
+    ) private {
+        if (newLiquidationFeeUpperBound_ == 0 || newLiquidationFeeLowerBound_ == 0)
+            revert ICommonErrors.ZeroValue("newLiquidationFee");
+        if (newLiquidationFeeUpperBound_ < newLiquidationFeeLowerBound_)
+            revert InvalidBounds(newLiquidationFeeLowerBound_, newLiquidationFeeUpperBound_);
+
+        emit LiquidationFeeBoundsModified(
+            liquidationFeeLowerBound,
+            liquidationFeeUpperBound,
+            newLiquidationFeeLowerBound_,
+            newLiquidationFeeUpperBound_
+        );
+
+        liquidationFeeLowerBound = newLiquidationFeeLowerBound_;
+        liquidationFeeUpperBound = newLiquidationFeeUpperBound_;
+    }
+
+    /// @dev WARNING: This function DOESN'T check if the position is liquidatable.
+    ///      That check has to be done before calling this function.
+    function _processLiquidation(
+        uint256 tokenId_,
+        uint256 currentPrice_
+    ) private liquidationInvariantChecks(vault, tokenId_) {
+        ILeverageModule leverageModule = ILeverageModule(vault.moduleAddress(FlatcoinModuleKeys._LEVERAGE_MODULE_KEY));
+        LeverageModuleStructs.Position memory position = vault.getPosition(tokenId_);
+        LeverageModuleStructs.PositionSummary memory positionSummary = leverageModule.getPositionSummary(
             position,
-            vault.cumulativeFundingRate(),
-            currentPrice
+            currentPrice_
         );
 
         // Check that the total margin deposited by the long traders is not -ve.
         // To get this amount, we will have to account for the PnL and funding fees accrued.
         int256 settledMargin = positionSummary.marginAfterSettlement;
-
         uint256 liquidatorFee;
 
         // If the settled margin is greater than 0, send a portion (or all) of the margin to the liquidator and LPs.
         if (settledMargin > 0) {
             // Calculate the liquidation fees to be sent to the caller.
-            uint256 expectedLiquidationFee = PerpMath._liquidationFee(
-                position.additionalSize,
-                liquidationFeeRatio,
-                liquidationFeeLowerBound,
-                liquidationFeeUpperBound,
-                currentPrice
-            );
+            uint256 expectedLiquidationFee = getLiquidationFee(position.additionalSize, currentPrice_);
 
             int256 remainingMargin;
 
@@ -154,195 +372,30 @@ contract LiquidationModule is
         });
 
         // Delete position storage
-        vault.deletePosition(tokenId);
-
-        // Cancel any limit orders associated with the position
-        ILimitOrder(vault.moduleAddress(FlatcoinModuleKeys._LIMIT_ORDER_KEY)).cancelExistingLimitOrder(tokenId);
+        vault.deletePosition(tokenId_);
 
         // If the position token is locked because of an announced order, it should still be liquidatable
-        ILeverageModule leverageModule = ILeverageModule(vault.moduleAddress(FlatcoinModuleKeys._LEVERAGE_MODULE_KEY));
+        leverageModule.burn(tokenId_);
 
-        leverageModule.burn(tokenId, FlatcoinModuleKeys._LIQUIDATION_MODULE_KEY);
-
-        emit FlatcoinEvents.PositionLiquidated(tokenId, msg.sender, liquidatorFee, currentPrice, positionSummary);
-    }
-
-    /////////////////////////////////////////////
-    //             View Functions              //
-    /////////////////////////////////////////////
-
-    /// @notice Function to calculate liquidation price for a given position.
-    /// @dev Note that liquidation price is influenced by the funding rates and also the current price.
-    /// @param tokenId The token ID of the leverage position.
-    /// @return liqPrice The liquidation price in $ terms.
-    function liquidationPrice(uint256 tokenId) public view returns (uint256 liqPrice) {
-        (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice();
-
-        return liquidationPrice(tokenId, currentPrice);
-    }
-
-    /// @notice Function to calculate liquidation price for a given position at a given price.
-    /// @dev Note that liquidation price is influenced by the funding rates and also the current price.
-    /// @param tokenId The token ID of the leverage position.
-    /// @param price The price at which the liquidation price is to be calculated.
-    /// @return liqPrice The liquidation price in $ terms.
-    function liquidationPrice(uint256 tokenId, uint256 price) public view returns (uint256 liqPrice) {
-        FlatcoinStructs.Position memory position = vault.getPosition(tokenId);
-
-        int256 nextFundingEntry = _accountFundingFees();
-
-        return
-            PerpMath._approxLiquidationPrice({
-                position: position,
-                nextFundingEntry: nextFundingEntry,
-                liquidationFeeRatio: liquidationFeeRatio,
-                liquidationBufferRatio: liquidationBufferRatio,
-                liquidationFeeLowerBound: liquidationFeeLowerBound,
-                liquidationFeeUpperBound: liquidationFeeUpperBound,
-                currentPrice: price
-            });
-    }
-
-    /// @notice Function which determines if a leverage position can be liquidated or not.
-    /// @param tokenId The token ID of the leverage position.
-    /// @return liquidatable True if the position can be liquidated, false otherwise.
-    function canLiquidate(uint256 tokenId) public view returns (bool liquidatable) {
-        // Get the current price from the oracle module.
-        (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice();
-
-        return canLiquidate(tokenId, currentPrice);
-    }
-
-    function canLiquidate(uint256 tokenId, uint256 price) public view returns (bool liquidatable) {
-        FlatcoinStructs.Position memory position = vault.getPosition(tokenId);
-
-        int256 nextFundingEntry = _accountFundingFees();
-
-        return
-            PerpMath._canLiquidate({
-                position: position,
-                liquidationFeeRatio: liquidationFeeRatio,
-                liquidationBufferRatio: liquidationBufferRatio,
-                liquidationFeeLowerBound: liquidationFeeLowerBound,
-                liquidationFeeUpperBound: liquidationFeeUpperBound,
-                nextFundingEntry: nextFundingEntry,
-                currentPrice: price
-            });
-    }
-
-    /// @notice Function to calculate the liquidation fee awarded for a liquidating a given position.
-    /// @param tokenId The token ID of the leverage position.
-    /// @return liquidationFee The liquidation fee in collateral units.
-    function getLiquidationFee(uint256 tokenId) public view returns (uint256 liquidationFee) {
-        // Get the latest price from the oracle module.
-        (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice();
-
-        return
-            PerpMath._liquidationFee(
-                vault.getPosition(tokenId).additionalSize,
-                liquidationFeeRatio,
-                liquidationFeeLowerBound,
-                liquidationFeeUpperBound,
-                currentPrice
-            );
-    }
-
-    /// @notice Function to calculate the liquidation margin for a given additional size amount.
-    /// @param additionalSize The additional size amount for which the liquidation margin is to be calculated.
-    /// @return liquidationMargin The liquidation margin in collateral units.
-    function getLiquidationMargin(uint256 additionalSize) public view returns (uint256 liquidationMargin) {
-        // Get the latest price from the oracle module.
-        (uint256 currentPrice, ) = IOracleModule(vault.moduleAddress(FlatcoinModuleKeys._ORACLE_MODULE_KEY)).getPrice();
-
-        return getLiquidationMargin(additionalSize, currentPrice);
-    }
-
-    /// @notice Function to calculate the liquidation margin for a given additional size amount and price.
-    /// @param additionalSize The additional size amount for which the liquidation margin is to be calculated.
-    /// @param price The price at which the liquidation margin is to be calculated.
-    /// @return liquidationMargin The liquidation margin in collateral units.
-    function getLiquidationMargin(
-        uint256 additionalSize,
-        uint256 price
-    ) public view returns (uint256 liquidationMargin) {
-        return
-            PerpMath._liquidationMargin(
-                additionalSize,
-                liquidationFeeRatio,
-                liquidationBufferRatio,
-                liquidationFeeLowerBound,
-                liquidationFeeUpperBound,
-                price
-            );
+        emit PositionLiquidated(tokenId_, msg.sender, liquidatorFee, currentPrice_, positionSummary);
     }
 
     /////////////////////////////////////////////
     //            Owner Functions              //
     /////////////////////////////////////////////
 
-    function setLiquidationFeeRatio(uint128 _newLiquidationFeeRatio) public onlyOwner {
-        if (_newLiquidationFeeRatio == 0) revert FlatcoinErrors.ZeroValue("newLiquidationFeeRatio");
-
-        emit FlatcoinEvents.LiquidationFeeRatioModified(liquidationFeeRatio, _newLiquidationFeeRatio);
-
-        liquidationFeeRatio = _newLiquidationFeeRatio;
+    function setLiquidationFeeRatio(uint128 newLiquidationFeeRatio_) external onlyOwner {
+        _setLiquidationFeeRatio(newLiquidationFeeRatio_);
     }
 
-    function setLiquidationBufferRatio(uint128 _newLiquidationBufferRatio) public onlyOwner {
-        if (_newLiquidationBufferRatio == 0) revert FlatcoinErrors.ZeroValue("newLiquidationBufferRatio");
-
-        emit FlatcoinEvents.LiquidationBufferRatioModified(liquidationBufferRatio, _newLiquidationBufferRatio);
-
-        liquidationBufferRatio = _newLiquidationBufferRatio;
+    function setLiquidationBufferRatio(uint128 newLiquidationBufferRatio_) external onlyOwner {
+        _setLiquidationBufferRatio(newLiquidationBufferRatio_);
     }
 
     function setLiquidationFeeBounds(
-        uint256 _newLiquidationFeeLowerBound,
-        uint256 _newLiquidationFeeUpperBound
-    ) public onlyOwner {
-        if (_newLiquidationFeeUpperBound == 0 || _newLiquidationFeeLowerBound == 0)
-            revert FlatcoinErrors.ZeroValue("newLiquidationFee");
-        if (_newLiquidationFeeUpperBound < _newLiquidationFeeLowerBound)
-            revert FlatcoinErrors.InvalidBounds(_newLiquidationFeeLowerBound, _newLiquidationFeeUpperBound);
-
-        emit FlatcoinEvents.LiquidationFeeBoundsModified(
-            liquidationFeeLowerBound,
-            liquidationFeeUpperBound,
-            _newLiquidationFeeLowerBound,
-            _newLiquidationFeeUpperBound
-        );
-
-        liquidationFeeLowerBound = _newLiquidationFeeLowerBound;
-        liquidationFeeUpperBound = _newLiquidationFeeUpperBound;
-    }
-
-    /////////////////////////////////////////////
-    //           Internal Functions            //
-    /////////////////////////////////////////////
-
-    /// @dev Accounts for the funding fees based on the market state.
-    /// @return nextFundingEntry The cumulative funding rate based on the latest market state.
-    function _accountFundingFees() internal view returns (int256 nextFundingEntry) {
-        uint256 stableCollateralTotal = vault.stableCollateralTotal();
-        int256 currMarketSkew = int256(vault.getGlobalPositions().sizeOpenedTotal) - int256(stableCollateralTotal);
-
-        int256 currentFundingRate = PerpMath._currentFundingRate({
-            proportionalSkew: PerpMath._proportionalSkew({
-                skew: currMarketSkew,
-                stableCollateralTotal: stableCollateralTotal
-            }),
-            lastRecomputedFundingRate: vault.lastRecomputedFundingRate(),
-            lastRecomputedFundingTimestamp: vault.lastRecomputedFundingTimestamp(),
-            maxFundingVelocity: vault.maxFundingVelocity(),
-            maxVelocitySkew: vault.maxVelocitySkew()
-        });
-
-        int256 unrecordedFunding = PerpMath._unrecordedFunding(
-            currentFundingRate,
-            vault.lastRecomputedFundingRate(),
-            vault.lastRecomputedFundingTimestamp()
-        );
-
-        return PerpMath._nextFundingEntry(unrecordedFunding, vault.cumulativeFundingRate());
+        uint256 newLiquidationFeeLowerBound_,
+        uint256 newLiquidationFeeUpperBound_
+    ) external onlyOwner {
+        _setLiquidationFeeBounds(newLiquidationFeeLowerBound_, newLiquidationFeeUpperBound_);
     }
 }

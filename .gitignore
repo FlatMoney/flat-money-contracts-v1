@@ -17,7 +17,7 @@ typechain-types
 artifacts
 
 # Foundry deployment files
-dry-run
+broadcast
 
 # MacOS specific file
 .DS_Store

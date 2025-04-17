@@ -1,0 +1,479 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "contract IFlatcoinVault",
+        "name": "vault_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account_",
+        "type": "address"
+      }
+    ],
+    "name": "getAccountLeveragePositionData",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "tokenId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "averagePrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "marginDeposited",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "additionalSize",
+            "type": "uint256"
+          },
+          {
+            "internalType": "int256",
+            "name": "entryCumulativeFunding",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "profitLoss",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "accruedFunding",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "marginAfterSettlement",
+            "type": "int256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "liquidationPrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "limitOrderStopLossPrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "limitOrderProfitTakePrice",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct LeveragePositionData[]",
+        "name": "positionData_",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getFlatcoinPriceInUSD",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "priceInUSD_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getFlatcoinTVL",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "tvl_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getMarketSkewPercentage",
+    "outputs": [
+      {
+        "internalType": "int256",
+        "name": "skewPercent_",
+        "type": "int256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "price_",
+        "type": "uint256"
+      }
+    ],
+    "name": "getMarketSummary",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "int256",
+            "name": "profitLossTotalByLongs",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "accruedFundingTotalByLongs",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "currentFundingRate",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "nextFundingEntry",
+            "type": "int256"
+          }
+        ],
+        "internalType": "struct MarketSummary",
+        "name": "marketSummary_",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getMarketSummary",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "int256",
+            "name": "profitLossTotalByLongs",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "accruedFundingTotalByLongs",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "currentFundingRate",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "nextFundingEntry",
+            "type": "int256"
+          }
+        ],
+        "internalType": "struct MarketSummary",
+        "name": "marketSummary_",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId_",
+        "type": "uint256"
+      }
+    ],
+    "name": "getPositionData",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "tokenId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "averagePrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "marginDeposited",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "additionalSize",
+            "type": "uint256"
+          },
+          {
+            "internalType": "int256",
+            "name": "entryCumulativeFunding",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "profitLoss",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "accruedFunding",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "marginAfterSettlement",
+            "type": "int256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "liquidationPrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "limitOrderStopLossPrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "limitOrderProfitTakePrice",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct LeveragePositionData",
+        "name": "positionData_",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenIdFrom_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokenIdTo_",
+        "type": "uint256"
+      }
+    ],
+    "name": "getPositionData",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "tokenId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "averagePrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "marginDeposited",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "additionalSize",
+            "type": "uint256"
+          },
+          {
+            "internalType": "int256",
+            "name": "entryCumulativeFunding",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "profitLoss",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "accruedFunding",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "marginAfterSettlement",
+            "type": "int256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "liquidationPrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "limitOrderStopLossPrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "limitOrderProfitTakePrice",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct LeveragePositionData[]",
+        "name": "positionData_",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getVaultSummary",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "int256",
+            "name": "marketSkew",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "cumulativeFundingRate",
+            "type": "int256"
+          },
+          {
+            "internalType": "int256",
+            "name": "lastRecomputedFundingRate",
+            "type": "int256"
+          },
+          {
+            "internalType": "uint64",
+            "name": "lastRecomputedFundingTimestamp",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stableCollateralTotal",
+            "type": "uint256"
+          },
+          {
+            "components": [
+              {
+                "internalType": "int256",
+                "name": "marginDepositedTotal",
+                "type": "int256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "averagePrice",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "sizeOpenedTotal",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct GlobalPositions",
+            "name": "globalPositions",
+            "type": "tuple"
+          }
+        ],
+        "internalType": "struct VaultSummary",
+        "name": "vaultSummary_",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "marketPrice_",
+        "type": "uint256"
+      }
+    ],
+    "name": "liquidationPrice",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "liqPrice_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId_",
+        "type": "uint256"
+      }
+    ],
+    "name": "liquidationPrice",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "liqPrice_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "vault",
+    "outputs": [
+      {
+        "internalType": "contract IFlatcoinVault",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

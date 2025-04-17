@@ -1,0 +1,92 @@
+[
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "components": [
+                  {
+                    "internalType": "contract IERC20",
+                    "name": "token",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "amount",
+                    "type": "uint256"
+                  },
+                  {
+                    "components": [
+                      {
+                        "internalType": "bytes32",
+                        "name": "routerKey",
+                        "type": "bytes32"
+                      },
+                      {
+                        "internalType": "bytes",
+                        "name": "swapData",
+                        "type": "bytes"
+                      }
+                    ],
+                    "internalType": "struct AggregatorData",
+                    "name": "aggregatorData",
+                    "type": "tuple"
+                  }
+                ],
+                "internalType": "struct SrcTokenSwapDetails[]",
+                "name": "srcTokenSwapDetails",
+                "type": "tuple[]"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "enum TransferMethod",
+                    "name": "method",
+                    "type": "uint8"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "methodData",
+                    "type": "bytes"
+                  }
+                ],
+                "internalType": "struct TransferMethodData",
+                "name": "transferMethodData",
+                "type": "tuple"
+              }
+            ],
+            "internalType": "struct SrcData[]",
+            "name": "srcData",
+            "type": "tuple[]"
+          },
+          {
+            "components": [
+              {
+                "internalType": "contract IERC20",
+                "name": "destToken",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "minDestAmount",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct DestData",
+            "name": "destData",
+            "type": "tuple"
+          }
+        ],
+        "internalType": "struct InOutData",
+        "name": "swapStruct_",
+        "type": "tuple"
+      }
+    ],
+    "name": "swap",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  }
+]

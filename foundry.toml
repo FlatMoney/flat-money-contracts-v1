@@ -3,17 +3,24 @@ src = 'src'
 out = 'out'
 libs = ['lib']
 verbosity = 2
-optimizer = true
-optimizer-runs = 500
-solc_version = '0.8.20'
+auto_detect_solc = true
 evm_version = 'paris'
 
 [profile.openzeppelin]
+optimizer = true
+optimizer-runs = 500
 ast = true
 build_info = true
 extra_output = ["storageLayout"]
 ffi = true
-fs_permissions = [{ access = 'read-write', path = './'}]
+fs_permissions = [{ access = 'read-write', path = './' }]
+prompt_timeout = 180                                      # 3 minutes
+block_gas_limit = 3000000000
+
+[profile.integration]
+ffi = true
+evm_version = 'shanghai'
+fs_permissions = [{ access = 'read-write', path = './swapdatas-cache/' }]
 
 [fuzz]
 runs = 15_000
@@ -22,13 +29,24 @@ fail_on_revert = true
 [rpc_endpoints]
 baseSepolia = "${BASE_SEPOLIA_RPC_URL}"
 base = "${BASE_RPC_URL}"
+optimism = "${OPTIMISM_RPC_URL}"
+arbitrum = "${ARBITRUM_RPC_URL}"
+polygon = "${POLYGON_RPC_URL}"
 
 [etherscan]
 baseSepolia = { key = "${BASE_ETHERSCAN_API_KEY}" }
 base = { key = "${BASE_ETHERSCAN_API_KEY}" }
+optimism = { key = "${OPTIMISM_ETHERSCAN_API_KEY}" }
+arbitrum = { key = "${ARBITRUM_ETHERSCAN_API_KEY}" }
+polygon = { key = "${POLYGON_ETHERSCAN_API_KEY}" }
 
 [doc]
-title = "Flat Money V1"
+title = "Flat Money V2"
+
+[profile.ci]
+ffi = true
+evm_version = 'shanghai'
+fs_permissions = [{ access = 'read-write', path = './swapdatas-cache/' }]
 
 [profile.ci.fuzz]
 runs = 1_000

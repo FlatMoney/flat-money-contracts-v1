@@ -1,0 +1,28 @@
+[
+  {
+    "inputs": [],
+    "name": "getPermit2Address",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "permit2Address_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getWrappedNativeToken",
+    "outputs": [
+      {
+        "internalType": "contract IWETH",
+        "name": "wrappedNativeToken_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

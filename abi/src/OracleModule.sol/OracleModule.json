@@ -11,23 +11,7 @@
   },
   {
     "inputs": [],
-    "name": "ModuleKeyEmpty",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "NotInitializing",
-    "type": "error"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "msgSender",
-        "type": "address"
-      }
-    ],
-    "name": "OnlyOwner",
     "type": "error"
   },
   {
@@ -38,7 +22,29 @@
   {
     "inputs": [
       {
-        "internalType": "enum FlatcoinErrors.PriceSource",
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum PriceSource",
         "name": "priceSource",
         "type": "uint8"
       }
@@ -60,7 +66,7 @@
   {
     "inputs": [
       {
-        "internalType": "enum FlatcoinErrors.PriceSource",
+        "internalType": "enum PriceSource",
         "name": "priceSource",
         "type": "uint8"
       }
@@ -117,13 +123,19 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "address",
-        "name": "asset",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
         "type": "address"
       }
     ],
-    "name": "SetAsset",
+    "name": "OwnershipTransferred",
     "type": "event"
   },
   {
@@ -145,11 +157,6 @@
       {
         "components": [
           {
-            "internalType": "contract IPyth",
-            "name": "oracleContract",
-            "type": "address"
-          },
-          {
             "internalType": "bytes32",
             "name": "priceId",
             "type": "bytes32"
@@ -166,7 +173,7 @@
           }
         ],
         "indexed": false,
-        "internalType": "struct FlatcoinStructs.OffchainOracle",
+        "internalType": "struct OffchainOracle",
         "name": "oracle",
         "type": "tuple"
       }
@@ -191,7 +198,7 @@
           }
         ],
         "indexed": false,
-        "internalType": "struct FlatcoinStructs.OnchainOracle",
+        "internalType": "struct OnchainOracle",
         "name": "oracle",
         "type": "tuple"
       }
@@ -213,13 +220,65 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "asset",
-    "outputs": [
+    "inputs": [
       {
         "internalType": "address",
-        "name": "",
+        "name": "asset_",
         "type": "address"
+      }
+    ],
+    "name": "getOracleData",
+    "outputs": [
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "contract IChainlinkAggregatorV3",
+                "name": "oracleContract",
+                "type": "address"
+              },
+              {
+                "internalType": "uint32",
+                "name": "maxAge",
+                "type": "uint32"
+              }
+            ],
+            "internalType": "struct OnchainOracle",
+            "name": "onchainOracle",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "priceId",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint32",
+                "name": "maxAge",
+                "type": "uint32"
+              },
+              {
+                "internalType": "uint32",
+                "name": "minConfidenceRatio",
+                "type": "uint32"
+              }
+            ],
+            "internalType": "struct OffchainOracle",
+            "name": "offchainOracle",
+            "type": "tuple"
+          },
+          {
+            "internalType": "uint64",
+            "name": "maxDiffPercent",
+            "type": "uint64"
+          }
+        ],
+        "internalType": "struct OracleData",
+        "name": "oracleData_",
+        "type": "tuple"
       }
     ],
     "stateMutability": "view",
@@ -228,13 +287,42 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "asset_",
+        "type": "address"
+      }
+    ],
+    "name": "getPrice",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "price_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "timestamp_",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "asset_",
+        "type": "address"
+      },
+      {
         "internalType": "uint32",
-        "name": "maxAge",
+        "name": "maxAge_",
         "type": "uint32"
       },
       {
         "internalType": "bool",
-        "name": "priceDiffCheck",
+        "name": "priceDiffCheck_",
         "type": "bool"
       }
     ],
@@ -242,30 +330,12 @@
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "price",
+        "name": "price_",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getPrice",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "price",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "timestamp",
+        "name": "timestamp_",
         "type": "uint256"
       }
     ],
@@ -275,63 +345,14 @@
   {
     "inputs": [
       {
-        "internalType": "contract IFlatcoinVault",
-        "name": "_vault",
-        "type": "address"
-      },
-      {
         "internalType": "address",
-        "name": "_asset",
+        "name": "owner_",
         "type": "address"
       },
       {
-        "components": [
-          {
-            "internalType": "contract IChainlinkAggregatorV3",
-            "name": "oracleContract",
-            "type": "address"
-          },
-          {
-            "internalType": "uint32",
-            "name": "maxAge",
-            "type": "uint32"
-          }
-        ],
-        "internalType": "struct FlatcoinStructs.OnchainOracle",
-        "name": "_onchainOracle",
-        "type": "tuple"
-      },
-      {
-        "components": [
-          {
-            "internalType": "contract IPyth",
-            "name": "oracleContract",
-            "type": "address"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "priceId",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "uint32",
-            "name": "maxAge",
-            "type": "uint32"
-          },
-          {
-            "internalType": "uint32",
-            "name": "minConfidenceRatio",
-            "type": "uint32"
-          }
-        ],
-        "internalType": "struct FlatcoinStructs.OffchainOracle",
-        "name": "_offchainOracle",
-        "type": "tuple"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_maxDiffPercent",
-        "type": "uint256"
+        "internalType": "contract IPyth",
+        "name": "pythContract_",
+        "type": "address"
       }
     ],
     "name": "initialize",
@@ -341,12 +362,12 @@
   },
   {
     "inputs": [],
-    "name": "maxDiffPercent",
+    "name": "owner",
     "outputs": [
       {
-        "internalType": "uint256",
+        "internalType": "address",
         "name": "",
-        "type": "uint256"
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -354,27 +375,12 @@
   },
   {
     "inputs": [],
-    "name": "offchainOracle",
+    "name": "pythOracleContract",
     "outputs": [
       {
         "internalType": "contract IPyth",
-        "name": "oracleContract",
+        "name": "",
         "type": "address"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "priceId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "uint32",
-        "name": "maxAge",
-        "type": "uint32"
-      },
-      {
-        "internalType": "uint32",
-        "name": "minConfidenceRatio",
-        "type": "uint32"
       }
     ],
     "stateMutability": "view",
@@ -382,75 +388,7 @@
   },
   {
     "inputs": [],
-    "name": "onchainOracle",
-    "outputs": [
-      {
-        "internalType": "contract IChainlinkAggregatorV3",
-        "name": "oracleContract",
-        "type": "address"
-      },
-      {
-        "internalType": "uint32",
-        "name": "maxAge",
-        "type": "uint32"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_asset",
-        "type": "address"
-      },
-      {
-        "components": [
-          {
-            "internalType": "contract IChainlinkAggregatorV3",
-            "name": "oracleContract",
-            "type": "address"
-          },
-          {
-            "internalType": "uint32",
-            "name": "maxAge",
-            "type": "uint32"
-          }
-        ],
-        "internalType": "struct FlatcoinStructs.OnchainOracle",
-        "name": "_onchainOracle",
-        "type": "tuple"
-      },
-      {
-        "components": [
-          {
-            "internalType": "contract IPyth",
-            "name": "oracleContract",
-            "type": "address"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "priceId",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "uint32",
-            "name": "maxAge",
-            "type": "uint32"
-          },
-          {
-            "internalType": "uint32",
-            "name": "minConfidenceRatio",
-            "type": "uint32"
-          }
-        ],
-        "internalType": "struct FlatcoinStructs.OffchainOracle",
-        "name": "_offchainOracle",
-        "type": "tuple"
-      }
-    ],
-    "name": "setAssetAndOracles",
+    "name": "renounceOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -458,9 +396,14 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "_maxDiffPercent",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "asset_",
+        "type": "address"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maxDiffPercent_",
+        "type": "uint64"
       }
     ],
     "name": "setMaxDiffPercent",
@@ -471,12 +414,51 @@
   {
     "inputs": [
       {
-        "internalType": "contract IFlatcoinVault",
-        "name": "_vault",
+        "internalType": "address",
+        "name": "asset_",
         "type": "address"
+      },
+      {
+        "components": [
+          {
+            "internalType": "contract IChainlinkAggregatorV3",
+            "name": "oracleContract",
+            "type": "address"
+          },
+          {
+            "internalType": "uint32",
+            "name": "maxAge",
+            "type": "uint32"
+          }
+        ],
+        "internalType": "struct OnchainOracle",
+        "name": "onchainOracle_",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "priceId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "maxAge",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "minConfidenceRatio",
+            "type": "uint32"
+          }
+        ],
+        "internalType": "struct OffchainOracle",
+        "name": "offchainOracle_",
+        "type": "tuple"
       }
     ],
-    "name": "setVault",
+    "name": "setOracles",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -485,31 +467,31 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "sender",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "sender_",
         "type": "address"
       },
       {
         "internalType": "bytes[]",
-        "name": "priceUpdateData",
+        "name": "priceUpdateData_",
         "type": "bytes[]"
       }
     ],
     "name": "updatePythPrice",
     "outputs": [],
     "stateMutability": "payable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "vault",
-    "outputs": [
-      {
-        "internalType": "contract IFlatcoinVault",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   }
 ]

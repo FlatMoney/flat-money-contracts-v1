@@ -1,25 +1,23 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {IPyth} from "pyth-sdk-solidity/IPyth.sol";
 import {PythStructs} from "pyth-sdk-solidity/PythStructs.sol";
 
-import {LimitOrder} from "src/LimitOrder.sol";
-import {FlatcoinErrors} from "../../../src/libraries/FlatcoinErrors.sol";
 import {Setup} from "../../helpers/Setup.sol";
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
 import "../../helpers/OrderHelpers.sol";
 
 import "forge-std/console2.sol";
 
-contract OracleTest is Setup, OrderHelpers, ExpectRevert {
+contract OracleTest is OrderHelpers, ExpectRevert {
     function test_oracle_get_price_full_update() public {
         uint256 wethPrice = 2200e8;
         // update onchain and offchain price
-        setWethPrice(wethPrice);
+        setCollateralPrice(wethPrice);
         skip(10);
 
-        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice();
+        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice(address(vaultProxy.collateral()));
         assertEq(price, wethPrice * 1e10, "Invalid oracle price");
         assertEq(timestamp, block.timestamp - 10, "Invalid timestamp");
     }
@@ -28,18 +26,18 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
         uint256 wethPriceOld = 1500e8;
         uint256 wethPriceNew = 2500e8;
 
-        setWethPrice(wethPriceOld);
+        setCollateralPrice(wethPriceOld);
 
         skip(1);
 
-        // Update WETH price on Chainlink only
+        // Update collateralAsset price on Chainlink only
         vm.mockCall(
-            address(wethChainlinkAggregatorV3),
+            address(collateralChainlinkAggregatorV3),
             abi.encodeWithSignature("latestRoundData()"),
             abi.encode(0, wethPriceNew, 0, block.timestamp, 0)
         );
 
-        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice(); // should return the Chainlink price because it's fresher
+        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice(address(vaultProxy.collateral())); // should return the Chainlink price because it's fresher
         assertEq(price, wethPriceNew * 1e10, "Invalid oracle price");
         assertEq(timestamp, block.timestamp, "Invalid timestamp");
     }
@@ -48,7 +46,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
         uint256 wethPriceOld = 1000e8;
         uint256 wethPriceNew = 1500e8;
 
-        setWethPrice(wethPriceOld);
+        setCollateralPrice(wethPriceOld);
 
         skip(1);
 
@@ -56,7 +54,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
         bytes[] memory priceUpdateData = getPriceUpdateData(wethPriceNew);
         oracleModProxy.updatePythPrice{value: 1}(msg.sender, priceUpdateData);
 
-        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice();
+        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice(address(vaultProxy.collateral()));
         assertEq(price, wethPriceNew * 1e10, "Invalid oracle price");
         assertEq(timestamp, block.timestamp, "Invalid timestamp");
     }
@@ -70,7 +68,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
 
         // Update Chainlink price
         vm.mockCall(
-            address(wethChainlinkAggregatorV3),
+            address(collateralChainlinkAggregatorV3),
             abi.encodeWithSignature("latestRoundData()"),
             abi.encode(0, wethPriceOnchain, 0, block.timestamp, 0)
         );
@@ -79,7 +77,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
         bytes[] memory priceUpdateData = getPriceUpdateData(wethPriceOffchain);
         oracleModProxy.updatePythPrice{value: 1}(msg.sender, priceUpdateData);
 
-        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice();
+        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice(address(vaultProxy.collateral()));
         assertEq(price, wethPriceOffchain * 1e10, "Invalid oracle price"); // should return the offchain price, not onchain
         assertEq(timestamp, block.timestamp, "Invalid timestamp");
     }
@@ -87,44 +85,50 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
     function test_oracle_get_price_max_age() public {
         uint256 wethPrice = 2500e8;
 
-        setWethPrice(wethPrice);
+        setCollateralPrice(wethPrice);
 
         skip(1);
 
-        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice({maxAge: 5, priceDiffCheck: true});
+        address marketToken = address(vaultProxy.collateral());
+
+        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice({
+            asset_: marketToken,
+            maxAge_: 5,
+            priceDiffCheck_: true
+        });
         assertEq(price, wethPrice * 1e10, "Invalid oracle price");
         assertEq(timestamp, block.timestamp - 1, "Invalid timestamp");
 
         skip(5);
 
         vm.expectRevert(
-            abi.encodeWithSelector(FlatcoinErrors.PriceStale.selector, FlatcoinErrors.PriceSource.OffChain)
+            abi.encodeWithSelector(ICommonErrors.PriceStale.selector, OracleModuleStructs.PriceSource.OffChain)
         );
-        (price, timestamp) = oracleModProxy.getPrice({maxAge: 5, priceDiffCheck: true});
+        (price, timestamp) = oracleModProxy.getPrice({asset_: marketToken, maxAge_: 5, priceDiffCheck_: true});
 
         // Update Pyth network price
         bytes[] memory priceUpdateData = getPriceUpdateData(wethPrice);
         oracleModProxy.updatePythPrice{value: 1}(msg.sender, priceUpdateData);
 
-        (price, timestamp) = oracleModProxy.getPrice({maxAge: 5, priceDiffCheck: true});
+        (price, timestamp) = oracleModProxy.getPrice({asset_: marketToken, maxAge_: 5, priceDiffCheck_: true});
         assertEq(price, wethPrice * 1e10, "Invalid oracle price");
         assertEq(timestamp, block.timestamp, "Invalid timestamp");
 
         // Update Chainlink price
         vm.mockCall(
-            address(wethChainlinkAggregatorV3),
+            address(collateralChainlinkAggregatorV3),
             abi.encodeWithSignature("latestRoundData()"),
             abi.encode(0, wethPrice, 0, block.timestamp, 0)
         );
 
-        (price, timestamp) = oracleModProxy.getPrice({maxAge: 5, priceDiffCheck: true});
+        (price, timestamp) = oracleModProxy.getPrice({asset_: marketToken, maxAge_: 5, priceDiffCheck_: true});
         assertEq(price, wethPrice * 1e10, "Invalid oracle price");
         assertEq(timestamp, block.timestamp, "Invalid timestamp");
     }
 
     function test_oracle_price_mismatch() public {
         vm.startPrank(admin);
-        oracleModProxy.setMaxDiffPercent(0.01e18); // 1% maximum difference between onchain and offchain price
+        oracleModProxy.setMaxDiffPercent(address(collateralAsset), 0.01e18); // 1% maximum difference between onchain and offchain price
 
         // Lower and within 1% - should pass
         {
@@ -135,7 +139,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
 
             // Update Chainlink price
             vm.mockCall(
-                address(wethChainlinkAggregatorV3),
+                address(collateralChainlinkAggregatorV3),
                 abi.encodeWithSignature("latestRoundData()"),
                 abi.encode(0, wethPriceOnchain, 0, block.timestamp, 0)
             );
@@ -144,7 +148,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
             bytes[] memory priceUpdateData = getPriceUpdateData(wethPriceOffchain);
             oracleModProxy.updatePythPrice{value: 1}(msg.sender, priceUpdateData);
 
-            oracleModProxy.getPrice({maxAge: 100, priceDiffCheck: true});
+            oracleModProxy.getPrice({asset_: address(vaultProxy.collateral()), maxAge_: 100, priceDiffCheck_: true});
         }
 
         // Lower and outside 1% - should revert
@@ -157,7 +161,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
 
             // Update Chainlink price
             vm.mockCall(
-                address(wethChainlinkAggregatorV3),
+                address(collateralChainlinkAggregatorV3),
                 abi.encodeWithSignature("latestRoundData()"),
                 abi.encode(0, wethPriceOnchain, 0, block.timestamp, 0)
             );
@@ -166,10 +170,12 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
             bytes[] memory priceUpdateData = getPriceUpdateData(wethPriceOffchain);
             oracleModProxy.updatePythPrice{value: 1}(msg.sender, priceUpdateData);
 
-            oracleModProxy.getPrice({maxAge: 100, priceDiffCheck: false}); // explicit test of the priceDiffCheck logic
+            address marketToken = address(vaultProxy.collateral());
 
-            vm.expectRevert(abi.encodeWithSelector(FlatcoinErrors.PriceMismatch.selector, priceDiffPercent));
-            oracleModProxy.getPrice({maxAge: 100, priceDiffCheck: true});
+            oracleModProxy.getPrice({asset_: marketToken, maxAge_: 100, priceDiffCheck_: false}); // explicit test of the priceDiffCheck logic
+
+            vm.expectRevert(abi.encodeWithSelector(OracleModule.PriceMismatch.selector, priceDiffPercent));
+            oracleModProxy.getPrice({asset_: marketToken, maxAge_: 100, priceDiffCheck_: true});
         }
 
         // Higher and within 1% - should pass
@@ -181,7 +187,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
 
             // Update Chainlink price
             vm.mockCall(
-                address(wethChainlinkAggregatorV3),
+                address(collateralChainlinkAggregatorV3),
                 abi.encodeWithSignature("latestRoundData()"),
                 abi.encode(0, wethPriceOnchain, 0, block.timestamp, 0)
             );
@@ -190,7 +196,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
             bytes[] memory priceUpdateData = getPriceUpdateData(wethPriceOffchain);
             oracleModProxy.updatePythPrice{value: 1}(msg.sender, priceUpdateData);
 
-            oracleModProxy.getPrice({maxAge: 100, priceDiffCheck: true});
+            oracleModProxy.getPrice({asset_: address(vaultProxy.collateral()), maxAge_: 100, priceDiffCheck_: true});
         }
 
         // Higher and outside 1% - should revert
@@ -203,7 +209,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
 
             // Update Chainlink price
             vm.mockCall(
-                address(wethChainlinkAggregatorV3),
+                address(collateralChainlinkAggregatorV3),
                 abi.encodeWithSignature("latestRoundData()"),
                 abi.encode(0, wethPriceOnchain, 0, block.timestamp, 0)
             );
@@ -212,18 +218,20 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
             bytes[] memory priceUpdateData = getPriceUpdateData(wethPriceOffchain);
             oracleModProxy.updatePythPrice{value: 1}(msg.sender, priceUpdateData);
 
-            vm.expectRevert(abi.encodeWithSelector(FlatcoinErrors.PriceMismatch.selector, priceDiffPercent));
-            oracleModProxy.getPrice({maxAge: 100, priceDiffCheck: true});
+            address marketToken = address(vaultProxy.collateral());
+
+            vm.expectRevert(abi.encodeWithSelector(OracleModule.PriceMismatch.selector, priceDiffPercent));
+            oracleModProxy.getPrice({asset_: marketToken, maxAge_: 100, priceDiffCheck_: true});
         }
     }
 
     function test_oracle_return_onchain_if_offchain_invalid() public {
         vm.prank(admin);
         // 1% maximum difference between onchain and offchain price
-        oracleModProxy.setMaxDiffPercent(0.01e18);
+        oracleModProxy.setMaxDiffPercent(address(collateralAsset), 0.01e18);
 
         // First set both prices to be the same
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
 
         // Then update the prices, but make the Pyth price to be invalid
         skip(1);
@@ -231,7 +239,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
         uint256 offchainPriceNew = 1600e8;
         // Update Chainlink price
         vm.mockCall(
-            address(wethChainlinkAggregatorV3),
+            address(collateralChainlinkAggregatorV3),
             abi.encodeWithSignature("latestRoundData()"),
             abi.encode(0, onchainPriceNew, 0, block.timestamp, 0)
         );
@@ -249,7 +257,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
         oracleModProxy.updatePythPrice{value: 1}(msg.sender, priceUpdateData);
 
         // Should return the Chainlink price because Pyth price is invalid and not revert
-        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice();
+        (uint256 price, uint256 timestamp) = oracleModProxy.getPrice(address(vaultProxy.collateral()));
         assertEq(price, onchainPriceNew * 1e10, "Invalid oracle price");
         assertEq(timestamp, block.timestamp, "Invalid timestamp");
     }
@@ -261,7 +269,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
 
         // Update Chainlink price
         vm.mockCall(
-            address(wethChainlinkAggregatorV3),
+            address(collateralChainlinkAggregatorV3),
             abi.encodeWithSignature("latestRoundData()"),
             abi.encode(0, onchainPrice, 0, block.timestamp, 0)
         );
@@ -270,16 +278,18 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
         bytes[] memory priceUpdateData = getPriceUpdateData(offchainPrice);
         oracleModProxy.updatePythPrice{value: 1}(msg.sender, priceUpdateData);
 
+        address marketToken = address(vaultProxy.collateral());
+
         vm.expectRevert(
-            abi.encodeWithSelector(FlatcoinErrors.PriceInvalid.selector, FlatcoinErrors.PriceSource.OnChain)
+            abi.encodeWithSelector(ICommonErrors.PriceInvalid.selector, OracleModuleStructs.PriceSource.OnChain)
         );
-        oracleModProxy.getPrice();
+        oracleModProxy.getPrice(marketToken);
     }
 
     function test_oracle_calculate_price_difference_correctly() public {
         vm.startPrank(admin);
         // 0.5% maximum difference between onchain and offchain price
-        oracleModProxy.setMaxDiffPercent(0.005e18);
+        oracleModProxy.setMaxDiffPercent(address(collateralAsset), 0.005e18);
 
         uint256 wethPriceOnchain = 4e8;
         uint256 wethPriceOffchain = 2e8;
@@ -289,7 +299,7 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
 
         // Update Chainlink price
         vm.mockCall(
-            address(wethChainlinkAggregatorV3),
+            address(collateralChainlinkAggregatorV3),
             abi.encodeWithSignature("latestRoundData()"),
             abi.encode(0, wethPriceOnchain, 0, block.timestamp, 0)
         );
@@ -298,16 +308,18 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
         bytes[] memory priceUpdateData = getPriceUpdateData(wethPriceOffchain);
         oracleModProxy.updatePythPrice{value: 1}(msg.sender, priceUpdateData);
 
-        vm.expectRevert(abi.encodeWithSelector(FlatcoinErrors.PriceMismatch.selector, priceDiffPercent));
-        oracleModProxy.getPrice({maxAge: 100, priceDiffCheck: true});
+        address marketToken = address(vaultProxy.collateral());
+
+        vm.expectRevert(abi.encodeWithSelector(OracleModule.PriceMismatch.selector, priceDiffPercent));
+        oracleModProxy.getPrice({asset_: marketToken, maxAge_: 100, priceDiffCheck_: true});
     }
 
     function test_multiple_prices_in_same_tx() public {
         // Setup
         vm.startPrank(admin);
-        leverageModProxy.setLeverageTradingFee(0.001e18); // 0.1%
+        vaultProxy.setLeverageTradingFee(0.001e18); // 0.1%
         uint256 collateralPrice = 1000e8;
-        setWethPrice(collateralPrice);
+        setCollateralPrice(collateralPrice);
         announceAndExecuteDeposit({
             traderAccount: bob,
             keeperAccount: keeper,
@@ -339,29 +351,34 @@ contract OracleTest is Setup, OrderHelpers, ExpectRevert {
 
         // Anounce limit order in the same block
         vm.startPrank(alice);
-        limitOrderProxy.announceLimitOrder({
-            tokenId: tokenId,
-            priceLowerThreshold: 0,
-            priceUpperThreshold: 1 // executable at any price
+        orderAnnouncementModProxy.announceLimitOrder({
+            tokenId_: tokenId,
+            stopLossPrice_: 0,
+            profitTakePrice_: 1 // executable at any price
         });
 
         // Wait for the orders to be executable
-        skip(vaultProxy.minExecutabilityAge());
+        skip(orderAnnouncementModProxy.minExecutabilityAge());
         bytes[] memory priceUpdateData1 = getPriceUpdateData(collateralPrice);
         // Price increases slightly after one second
         skip(1);
         bytes[] memory priceUpdateData2 = getPriceUpdateData(collateralPrice + 1.2e8);
 
         // Execute the adjustment with the lower price and the limit order with the higher price
-        delayedOrderProxy.executeOrder{value: 1}(alice, priceUpdateData1);
+        orderExecutionModProxy.executeOrder{value: 1}(alice, priceUpdateData1);
 
         _expectRevertWithCustomError({
-            target: address(limitOrderProxy),
-            callData: abi.encodeWithSelector(LimitOrder.executeLimitOrder.selector, tokenId, priceUpdateData2, 0),
+            target: address(orderExecutionModProxy),
+            callData: abi.encodeWithSelector(
+                OrderExecutionModule.executeLimitOrder.selector,
+                tokenId,
+                priceUpdateData2,
+                0
+            ),
             expectedErrorSignature: "ExecutableTimeNotReached(uint256)",
             errorData: abi.encodeWithSelector(
-                FlatcoinErrors.ExecutableTimeNotReached.selector,
-                uint64(block.timestamp + vaultProxy.minExecutabilityAge())
+                ICommonErrors.ExecutableTimeNotReached.selector,
+                uint64(block.timestamp + orderAnnouncementModProxy.minExecutabilityAge())
             ),
             value: 1
         });

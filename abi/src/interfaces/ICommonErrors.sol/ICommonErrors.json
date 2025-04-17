@@ -1,0 +1,197 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "AmountTooSmall",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "executableTime",
+        "type": "uint256"
+      }
+    ],
+    "name": "ExecutableTimeNotReached",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "supplied",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "accepted",
+        "type": "uint256"
+      }
+    ],
+    "name": "HighSlippage",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "fee",
+        "type": "uint256"
+      }
+    ],
+    "name": "InvalidFee",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "percentage",
+        "type": "uint64"
+      }
+    ],
+    "name": "InvalidPercentageValue",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MaxPositionsReached",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "skewFraction",
+        "type": "uint256"
+      }
+    ],
+    "name": "MaxSkewReached",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "int256",
+        "name": "marginAmount",
+        "type": "int256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "feeAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "NotEnoughMarginForFees",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "msgSender",
+        "type": "address"
+      }
+    ],
+    "name": "NotTokenOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "msgSender",
+        "type": "address"
+      }
+    ],
+    "name": "OnlyAuthorizedModule",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum OrderType",
+        "name": "orderType",
+        "type": "uint8"
+      }
+    ],
+    "name": "OrderExists",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "PositionCreatesBadDebt",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum PriceSource",
+        "name": "priceSource",
+        "type": "uint8"
+      }
+    ],
+    "name": "PriceInvalid",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum PriceSource",
+        "name": "priceSource",
+        "type": "uint8"
+      }
+    ],
+    "name": "PriceStale",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "variableName",
+        "type": "string"
+      }
+    ],
+    "name": "ValueNotPositive",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "variableName",
+        "type": "string"
+      }
+    ],
+    "name": "ZeroAddress",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "variableName",
+        "type": "string"
+      }
+    ],
+    "name": "ZeroValue",
+    "type": "error"
+  }
+]

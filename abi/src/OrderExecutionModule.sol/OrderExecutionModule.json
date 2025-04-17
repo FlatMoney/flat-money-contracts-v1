@@ -1,0 +1,456 @@
+[
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "target",
+        "type": "address"
+      }
+    ],
+    "name": "AddressEmptyCode",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "AddressInsufficientBalance",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "executableTime",
+        "type": "uint256"
+      }
+    ],
+    "name": "ExecutableTimeNotReached",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "FailedInnerCall",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "supplied",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "accepted",
+        "type": "uint256"
+      }
+    ],
+    "name": "HighSlippage",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidInitialization",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "variableName",
+        "type": "string"
+      }
+    ],
+    "name": "InvariantViolation",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "price",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "stopLossPrice",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "profitTakePrice",
+        "type": "uint256"
+      }
+    ],
+    "name": "LimitOrderPriceNotInRange",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ModuleKeyEmpty",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "int256",
+        "name": "marginAmount",
+        "type": "int256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "feeAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "NotEnoughMarginForFees",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotInitializing",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "msgSender",
+        "type": "address"
+      }
+    ],
+    "name": "OnlyAuthorizedModule",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "msgSender",
+        "type": "address"
+      }
+    ],
+    "name": "OnlyOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OrderHasExpired",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "OrderHasNotExpired",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OrderInvalid",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "moduleKey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "Paused",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ReentrancyGuardReentrantCall",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      }
+    ],
+    "name": "SafeERC20FailedOperation",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "variableName",
+        "type": "string"
+      }
+    ],
+    "name": "ZeroAddress",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "variableName",
+        "type": "string"
+      }
+    ],
+    "name": "ZeroValue",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "version",
+        "type": "uint64"
+      }
+    ],
+    "name": "Initialized",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum OrderExecutionModule.LimitOrderExecutionType",
+        "name": "executionType",
+        "type": "uint8"
+      }
+    ],
+    "name": "LimitOrderExecuted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum OrderType",
+        "name": "orderType",
+        "type": "uint8"
+      }
+    ],
+    "name": "OrderCancelled",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum OrderType",
+        "name": "orderType",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "keeperFee",
+        "type": "uint256"
+      }
+    ],
+    "name": "OrderExecuted",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "MODULE_KEY",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account_",
+        "type": "address"
+      }
+    ],
+    "name": "cancelExistingOrder",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account_",
+        "type": "address"
+      }
+    ],
+    "name": "cancelOrderByModule",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId_",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes[]",
+        "name": "priceUpdateData_",
+        "type": "bytes[]"
+      }
+    ],
+    "name": "executeLimitOrder",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account_",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes[]",
+        "name": "priceUpdateData_",
+        "type": "bytes[]"
+      }
+    ],
+    "name": "executeOrder",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account_",
+        "type": "address"
+      }
+    ],
+    "name": "hasOrderExpired",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "expired_",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "contract IFlatcoinVault",
+        "name": "vault_",
+        "type": "address"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maxExecutabilityAge_",
+        "type": "uint64"
+      }
+    ],
+    "name": "initialize",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "maxExecutabilityAge",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "maxExecutabilityAge_",
+        "type": "uint64"
+      }
+    ],
+    "name": "setMaxExecutabilityAge",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "contract IFlatcoinVault",
+        "name": "vault_",
+        "type": "address"
+      }
+    ],
+    "name": "setVault",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "vault",
+    "outputs": [
+      {
+        "internalType": "contract IFlatcoinVault",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

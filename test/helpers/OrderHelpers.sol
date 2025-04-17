@@ -1,39 +1,31 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {MockPyth} from "pyth-sdk-solidity/MockPyth.sol";
 import {IPyth} from "pyth-sdk-solidity/IPyth.sol";
 
-import {Setup} from "./Setup.sol";
-import {FlatcoinStructs} from "../../src/libraries/FlatcoinStructs.sol";
-import {MockKeeperFee} from "../unit/mocks/MockKeeperFee.sol";
-import {PerpMath} from "../../src/libraries/PerpMath.sol";
-import {IChainlinkAggregatorV3} from "../../src/interfaces/IChainlinkAggregatorV3.sol";
-import {FlatcoinVault} from "../../src/FlatcoinVault.sol";
-import {StableModule} from "../../src/StableModule.sol";
-import {OracleModule} from "../../src/OracleModule.sol";
-import {LeverageModule} from "../../src/LeverageModule.sol";
-import {DelayedOrder} from "../../src/DelayedOrder.sol";
-import {ILeverageModule} from "../../src/interfaces/ILeverageModule.sol";
-import {IStableModule} from "../../src/interfaces/IStableModule.sol";
-import {IDelayedOrder} from "../../src/interfaces/IDelayedOrder.sol";
-import {IOracleModule} from "../../src/interfaces/IOracleModule.sol";
+import "./Setup.sol";
 
 import "forge-std/Test.sol";
 import "forge-std/console2.sol";
 
 abstract contract OrderHelpers is Setup {
-    using PerpMath for int256;
-    using PerpMath for uint256;
-
     /********************************************
      *             Helper Functions             *
      ********************************************/
+    struct InitialPositionDetails {
+        uint256 margin;
+        uint256 additionalSize;
+    }
+
+    struct InitialDepositDetails {
+        uint256 depositAmount;
+    }
 
     struct AnnounceAdjustTestData {
-        uint256 traderEthBalanceBefore;
+        uint256 traderCollateralAssetBalanceBefore;
         uint256 traderNftBalanceBefore;
-        uint256 delayedOrderBalanceBefore;
+        uint256 orderExecutionModBalanceBefore;
         uint256 stableCollateralPerShareBefore;
         bool marginIncrease;
         uint256 totalEthRequired;
@@ -41,14 +33,25 @@ abstract contract OrderHelpers is Setup {
 
     struct VerifyLeverageData {
         uint256 nftTotalSupply;
-        uint256 traderEthBalance;
+        uint256 traderCollateralAssetBalance;
+        uint256 feeRecipientBalance;
         uint256 traderNftBalance;
         uint256 contractNftBalance;
         uint256 keeperBalance;
         uint256 stableCollateralPerShare;
-        FlatcoinStructs.PositionSummary positionSummary;
+        LeverageModuleStructs.PositionSummary positionSummary;
         uint256 oraclePrice;
-        FlatcoinStructs.Position position;
+        LeverageModuleStructs.Position position;
+    }
+
+    struct LeverageOpenData {
+        address traderAccount;
+        address receiver;
+        uint256 margin;
+        uint256 additionalSize;
+        uint256 stopLossPrice;
+        uint256 profitTakePrice;
+        uint256 keeperFeeAmount;
     }
 
     // *** Announced stable orders ***
@@ -60,13 +63,24 @@ abstract contract OrderHelpers is Setup {
         uint256 oraclePrice,
         uint256 keeperFeeAmount
     ) public virtual {
+        announceAndExecuteDeposit(traderAccount, keeperAccount, depositAmount, oraclePrice, 0, keeperFeeAmount);
+    }
+
+    function announceAndExecuteDeposit(
+        address traderAccount,
+        address keeperAccount,
+        uint256 depositAmount,
+        uint256 collateralPrice,
+        uint256 marketPrice,
+        uint256 keeperFeeAmount
+    ) public virtual {
         keeperFeeAmount = keeperFeeAmount > 0 ? keeperFeeAmount : mockKeeperFee.getKeeperFee();
 
         announceStableDeposit(traderAccount, depositAmount, keeperFeeAmount);
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        executeStableDeposit(keeperAccount, traderAccount, oraclePrice);
+        executeStableDepositOracles(keeperAccount, traderAccount, collateralPrice, marketPrice);
     }
 
     function announceAndExecuteDepositFor(
@@ -81,7 +95,7 @@ abstract contract OrderHelpers is Setup {
 
         announceStableDepositFor(traderAccount, receiver, depositAmount, keeperFeeAmount);
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
         executeStableDeposit(keeperAccount, receiver, oraclePrice);
     }
@@ -93,11 +107,22 @@ abstract contract OrderHelpers is Setup {
         uint256 oraclePrice,
         uint256 keeperFeeAmount
     ) public virtual {
+        announceAndExecuteWithdraw(traderAccount, keeperAccount, withdrawAmount, oraclePrice, 0, keeperFeeAmount);
+    }
+
+    function announceAndExecuteWithdraw(
+        address traderAccount,
+        address keeperAccount,
+        uint256 withdrawAmount,
+        uint256 collateralPrice,
+        uint256 marketPrice,
+        uint256 keeperFeeAmount
+    ) public virtual {
         announceStableWithdraw(traderAccount, withdrawAmount, keeperFeeAmount);
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        executeStableWithdraw(keeperAccount, traderAccount, oraclePrice);
+        executeStableWithdrawOracles(keeperAccount, traderAccount, collateralPrice, marketPrice);
     }
 
     function announceStableDeposit(
@@ -116,25 +141,25 @@ abstract contract OrderHelpers is Setup {
     ) public virtual {
         vm.startPrank(traderAccount);
         keeperFeeAmount = keeperFeeAmount > 0 ? keeperFeeAmount : mockKeeperFee.getKeeperFee();
-        uint256 traderEthBalance = WETH.balanceOf(traderAccount);
-        uint256 traderStableBalance = stableModProxy.balanceOf(traderAccount);
+        uint256 traderCollateralAssetBalance = collateralAsset.balanceOf(traderAccount);
+        uint256 receiverStableBalance = stableModProxy.balanceOf(receiver);
         uint256 stableCollateralPerShareBefore = stableModProxy.stableCollateralPerShare();
         uint256 minAmountOut = stableModProxy.stableDepositQuote(depositAmount);
         // 1% slippage to account for any funding rate effect between announce and execute
         minAmountOut = (minAmountOut * 0.99e18) / 1e18;
 
-        // Approve WETH
-        WETH.approve(address(delayedOrderProxy), depositAmount + keeperFeeAmount);
+        // Approve collateralAsset
+        collateralAsset.approve(address(orderAnnouncementModProxy), depositAmount + keeperFeeAmount);
 
         // Announce the order
         if (traderAccount == receiver) {
-            IDelayedOrder(vaultProxy.moduleAddress(DELAYED_ORDER_KEY)).announceStableDeposit({
+            IOrderAnnouncementModule(vaultProxy.moduleAddress(ORDER_ANNOUNCEMENT_MODULE_KEY)).announceStableDeposit({
                 depositAmount: depositAmount,
                 minAmountOut: minAmountOut,
                 keeperFee: keeperFeeAmount
             });
         } else {
-            IDelayedOrder(vaultProxy.moduleAddress(DELAYED_ORDER_KEY)).announceStableDepositFor({
+            IOrderAnnouncementModule(vaultProxy.moduleAddress(ORDER_ANNOUNCEMENT_MODULE_KEY)).announceStableDepositFor({
                 depositAmount: depositAmount,
                 minAmountOut: minAmountOut,
                 keeperFee: keeperFeeAmount,
@@ -142,22 +167,22 @@ abstract contract OrderHelpers is Setup {
             });
         }
 
-        FlatcoinStructs.Order memory order = delayedOrderProxy.getAnnouncedOrder(receiver);
+        DelayedOrderStructs.Order memory order = orderAnnouncementModProxy.getAnnouncedOrder(receiver);
 
         {
-            FlatcoinStructs.AnnouncedStableDeposit memory stableDeposit = abi.decode(
+            DelayedOrderStructs.AnnouncedStableDeposit memory stableDeposit = abi.decode(
                 order.orderData,
-                (FlatcoinStructs.AnnouncedStableDeposit)
+                (DelayedOrderStructs.AnnouncedStableDeposit)
             );
             assertEq(stableDeposit.depositAmount, depositAmount, "Incorrect deposit order amount");
             assertEq(stableDeposit.minAmountOut, minAmountOut, "Incorrect deposit order minimum amount out");
         }
         assertEq(
-            WETH.balanceOf(traderAccount),
-            traderEthBalance - depositAmount - keeperFeeAmount,
-            "Incorrect trader WETH balance after announce"
+            collateralAsset.balanceOf(traderAccount),
+            traderCollateralAssetBalance - depositAmount - keeperFeeAmount,
+            "Incorrect trader collateralAsset balance after announce"
         );
-        assertEq(traderStableBalance, stableModProxy.balanceOf(receiver), "No LP tokens should have been minted yet");
+        assertEq(receiverStableBalance, stableModProxy.balanceOf(receiver), "No LP tokens should have been minted yet");
         assertApproxEqAbs(
             stableCollateralPerShareBefore,
             stableModProxy.stableCollateralPerShare(),
@@ -165,7 +190,7 @@ abstract contract OrderHelpers is Setup {
             "stableCollateralPerShare changed after announce"
         );
         assertGt(order.keeperFee, 0, "keeper fee amount not > 0");
-        assertEq(uint256(order.orderType), uint256(FlatcoinStructs.OrderType.StableDeposit), "Order doesn't exist");
+        assertEq(uint256(order.orderType), uint256(DelayedOrderStructs.OrderType.StableDeposit), "Order doesn't exist");
         vm.stopPrank();
     }
 
@@ -176,26 +201,37 @@ abstract contract OrderHelpers is Setup {
     ) public virtual {
         vm.startPrank(traderAccount);
         keeperFeeAmount = keeperFeeAmount > 0 ? keeperFeeAmount : mockKeeperFee.getKeeperFee();
-        uint256 vaultEthBalance = WETH.balanceOf(address(vaultProxy));
-        uint256 traderEthBalance = WETH.balanceOf(traderAccount);
+        uint256 vaultEthBalance = collateralAsset.balanceOf(address(vaultProxy));
+        uint256 traderCollateralAssetBalance = collateralAsset.balanceOf(traderAccount);
         uint256 traderStableBalance = stableModProxy.balanceOf(traderAccount);
         uint256 stableCollateralPerShareBefore = stableModProxy.stableCollateralPerShare();
-        uint256 minAmountOut = stableModProxy.stableWithdrawQuote(withdrawAmount) - keeperFeeAmount;
+        uint256 minAmountOut;
+
+        {
+            (uint256 withdrawalAmount, ) = stableModProxy.stableWithdrawQuote(withdrawAmount);
+
+            if (withdrawalAmount > keeperFeeAmount) {
+                minAmountOut = withdrawalAmount - keeperFeeAmount;
+            } else {
+                revert("OrderHelpers: Withdrawal amount is less than keeper fee");
+            }
+        }
+
         // 1% slippage to account for any funding rate effect between announce and execute
         minAmountOut = (minAmountOut * 0.99e18) / 1e18;
 
         // Announce the order
-        IDelayedOrder(vaultProxy.moduleAddress(DELAYED_ORDER_KEY)).announceStableWithdraw({
+        IOrderAnnouncementModule(vaultProxy.moduleAddress(ORDER_ANNOUNCEMENT_MODULE_KEY)).announceStableWithdraw({
             withdrawAmount: withdrawAmount,
             minAmountOut: minAmountOut,
             keeperFee: keeperFeeAmount
         });
-        FlatcoinStructs.Order memory order = delayedOrderProxy.getAnnouncedOrder(traderAccount);
+        DelayedOrderStructs.Order memory order = orderAnnouncementModProxy.getAnnouncedOrder(traderAccount);
 
         {
-            FlatcoinStructs.AnnouncedStableWithdraw memory stableWithdraw = abi.decode(
+            DelayedOrderStructs.AnnouncedStableWithdraw memory stableWithdraw = abi.decode(
                 order.orderData,
-                (FlatcoinStructs.AnnouncedStableWithdraw)
+                (DelayedOrderStructs.AnnouncedStableWithdraw)
             );
             assertEq(stableWithdraw.withdrawAmount, withdrawAmount, "Incorrect withdraw order amount");
             assertEq(stableWithdraw.minAmountOut, minAmountOut, "Incorrect withdraw order minimum amount out");
@@ -205,51 +241,97 @@ abstract contract OrderHelpers is Setup {
             traderStableBalance,
             "LP tokens should not have been deducted from the trader's balance yet"
         );
-        assertEq(WETH.balanceOf(traderAccount), traderEthBalance, "Trader WETH balance should not have changed yet");
         assertEq(
-            stableModProxy.balanceOf(address(delayedOrderProxy)),
+            collateralAsset.balanceOf(traderAccount),
+            traderCollateralAssetBalance,
+            "Trader collateralAsset balance should not have changed yet"
+        );
+        assertEq(
+            stableModProxy.balanceOf(address(orderExecutionModProxy)),
             0,
             "Delayed Order LP balance shouldn't have changed"
         );
         assertEq(stableModProxy.getLockedAmount(traderAccount), withdrawAmount, "Stable LP not locked on announce");
-        assertEq(traderEthBalance, WETH.balanceOf(traderAccount), "Collateral balance changed for trader on announce"); // no collateral change for the trader
+        assertEq(
+            traderCollateralAssetBalance,
+            collateralAsset.balanceOf(traderAccount),
+            "Collateral balance changed for trader on announce"
+        ); // no collateral change for the trader
         assertApproxEqAbs(
             stableCollateralPerShareBefore,
             stableModProxy.stableCollateralPerShare(),
             1e6, // rounding error only
             "stableCollateralPerShare changed"
         );
-        assertEq(vaultEthBalance, WETH.balanceOf(address(vaultProxy)), "Vault WETH balance changed on announce");
+        assertEq(
+            vaultEthBalance,
+            collateralAsset.balanceOf(address(vaultProxy)),
+            "Vault collateralAsset balance changed on announce"
+        );
         assertGt(order.keeperFee, 0, "keeper fee amount not > 0");
-        assertEq(uint256(order.orderType), uint256(FlatcoinStructs.OrderType.StableWithdraw), "Order doesn't exist");
+        assertEq(
+            uint256(order.orderType),
+            uint256(DelayedOrderStructs.OrderType.StableWithdraw),
+            "Order doesn't exist"
+        );
 
         vm.stopPrank();
     }
 
     function executeStableDeposit(address keeperAccount, address traderAccount, uint256 oraclePrice) public virtual {
+        executeStableDepositOracles(keeperAccount, traderAccount, oraclePrice, 0);
+    }
+
+    function executeStableDepositOracles(
+        address keeperAccount,
+        address traderAccount,
+        uint256 collateralPrice,
+        uint256 marketPrice
+    ) public virtual {
         // Execute the user's pending deposit
         uint256 lpTotalSupply = stableModProxy.totalSupply();
         uint256 traderStableBalance = stableModProxy.balanceOf(traderAccount);
-        uint256 keeperBalanceBefore = WETH.balanceOf(keeperAccount);
+        uint256 keeperBalanceBefore = collateralAsset.balanceOf(keeperAccount);
 
-        uint256 stableCollateralPerShareBefore = uint256(_getStableCollateralPerShare(oraclePrice * 1e10));
+        uint256 stableCollateralPerShareBefore = uint256(_getStableCollateralPerShare(collateralPrice * 1e10));
 
-        FlatcoinStructs.Order memory order = delayedOrderProxy.getAnnouncedOrder(traderAccount);
-        FlatcoinStructs.AnnouncedStableDeposit memory stableDeposit = abi.decode(
+        DelayedOrderStructs.Order memory order = orderAnnouncementModProxy.getAnnouncedOrder(traderAccount);
+        DelayedOrderStructs.AnnouncedStableDeposit memory stableDeposit = abi.decode(
             order.orderData,
-            (FlatcoinStructs.AnnouncedStableDeposit)
+            (DelayedOrderStructs.AnnouncedStableDeposit)
         );
         uint256 depositAmount = stableDeposit.depositAmount;
 
         vm.startPrank(keeperAccount);
 
-        bytes[] memory priceUpdateData = getPriceUpdateData(oraclePrice);
+        {
+            PythPrice[] memory prices = new PythPrice[](2);
 
-        delayedOrderProxy.executeOrder{value: 1}(traderAccount, priceUpdateData);
+            if (collateralPrice > 0 && marketPrice > 0) {
+                prices[0] = PythPrice({price: collateralPrice, priceId: collateralPythId});
+                prices[1] = PythPrice({price: marketPrice, priceId: collateralPythId});
+            } else {
+                if (collateralPrice == 0) {
+                    prices[0] = PythPrice({price: marketPrice, priceId: collateralPythId});
+                }
+                if (marketPrice == 0) {
+                    prices[0] = PythPrice({price: collateralPrice, priceId: collateralPythId});
+                }
+                assembly {
+                    mstore(prices, sub(mload(prices), 1)) // reduce length by 1
+                }
+            }
+
+            bytes[] memory priceUpdateData = getPriceUpdateDataMultiple(prices);
+
+            orderExecutionModProxy.executeOrder{value: 2}(traderAccount, priceUpdateData);
+        }
+
+        uint256 expectedLiquidityMinted = stableModProxy.stableDepositQuote(depositAmount);
 
         assertEq(
             keeperBalanceBefore + order.keeperFee,
-            WETH.balanceOf(keeperAccount),
+            collateralAsset.balanceOf(keeperAccount),
             "Incorrect amount sent to keeper after deposit execution"
         );
 
@@ -263,14 +345,12 @@ abstract contract OrderHelpers is Setup {
         );
         assertEq(
             stableModProxy.balanceOf(traderAccount),
-            (traderStableBalance +
-                (depositAmount * (10 ** stableModProxy.decimals())) /
-                stableCollateralPerShareBefore),
+            traderStableBalance + expectedLiquidityMinted,
             "Incorrect deposit tokens minted to trader after deposit execution"
         );
         assertEq(
             stableModProxy.totalSupply(),
-            lpTotalSupply + ((depositAmount * (10 ** stableModProxy.decimals())) / stableCollateralPerShareBefore),
+            lpTotalSupply + expectedLiquidityMinted,
             "incorrect LP total supply after deposit execution"
         );
 
@@ -278,26 +358,47 @@ abstract contract OrderHelpers is Setup {
     }
 
     function executeStableWithdraw(address keeperAccount, address traderAccount, uint256 oraclePrice) public virtual {
+        executeStableWithdrawOracles(keeperAccount, traderAccount, oraclePrice, 0);
+    }
+
+    function executeStableWithdrawOracles(
+        address keeperAccount,
+        address traderAccount,
+        uint256 collateralPrice,
+        uint256 marketPrice
+    ) public virtual {
         uint256 lpTotalSupply = stableModProxy.totalSupply();
-        uint256 keeperBalanceBefore = WETH.balanceOf(keeperAccount);
+        uint256 keeperBalanceBefore = collateralAsset.balanceOf(keeperAccount);
 
         uint256 stableCollateralPerShareBefore = stableModProxy.stableCollateralPerShare();
-        FlatcoinStructs.Order memory order = delayedOrderProxy.getAnnouncedOrder(traderAccount);
-        FlatcoinStructs.AnnouncedStableWithdraw memory stableWithdraw = abi.decode(
+        DelayedOrderStructs.Order memory order = orderAnnouncementModProxy.getAnnouncedOrder(traderAccount);
+        DelayedOrderStructs.AnnouncedStableWithdraw memory stableWithdraw = abi.decode(
             order.orderData,
-            (FlatcoinStructs.AnnouncedStableWithdraw)
+            (DelayedOrderStructs.AnnouncedStableWithdraw)
         );
         uint256 withdrawAmount = stableWithdraw.withdrawAmount;
-        uint256 traderWethBalanceBefore = WETH.balanceOf(traderAccount);
+        uint256 traderCollateralBalanceBefore = collateralAsset.balanceOf(traderAccount);
         uint256 traderLPBalanceBefore = stableModProxy.balanceOf(traderAccount);
 
         // Execute the user's pending withdrawal
         {
             vm.startPrank(keeperAccount);
+            {
+                PythPrice[] memory prices = new PythPrice[](2);
 
-            bytes[] memory priceUpdateData = getPriceUpdateData(oraclePrice);
+                if (marketPrice > 0) {
+                    prices[0] = PythPrice({price: collateralPrice, priceId: collateralPythId});
+                    prices[1] = PythPrice({price: marketPrice, priceId: collateralPythId});
+                } else {
+                    prices[0] = PythPrice({price: collateralPrice, priceId: collateralPythId});
+                    assembly {
+                        mstore(prices, sub(mload(prices), 1)) // reduce length by 1
+                    }
+                }
+                bytes[] memory priceUpdateData = getPriceUpdateDataMultiple(prices);
 
-            delayedOrderProxy.executeOrder{value: 1}(traderAccount, priceUpdateData);
+                orderExecutionModProxy.executeOrder{value: 2}(traderAccount, priceUpdateData);
+            }
 
             uint256 expectedAmountOut = (withdrawAmount * stableCollateralPerShareBefore) /
                 (10 ** stableModProxy.decimals());
@@ -305,14 +406,14 @@ abstract contract OrderHelpers is Setup {
             uint256 withdrawFee;
             if (stableModProxy.totalSupply() > 0) {
                 // don't apply the withdrawal fee on the last withdrawal
-                withdrawFee = (stableModProxy.stableWithdrawFee() * expectedAmountOut) / 1e18;
+                withdrawFee = FeeManager(address(vaultProxy)).getWithdrawalFee(expectedAmountOut);
             }
 
-            uint256 traderWethBalanceAfter = WETH.balanceOf(traderAccount);
+            uint256 traderCollateralBalanceAfter = collateralAsset.balanceOf(traderAccount);
 
             assertEq(
                 expectedAmountOut - order.keeperFee - withdrawFee,
-                traderWethBalanceAfter - traderWethBalanceBefore,
+                traderCollateralBalanceAfter - traderCollateralBalanceBefore,
                 "incorrect collateral tokens transferred to trader after execute"
             );
         }
@@ -323,12 +424,6 @@ abstract contract OrderHelpers is Setup {
                 stableModProxy.stableCollateralPerShare(), // can be higher if withdraw fees are enabled
                 "stableCollateralPerShare changed after execute"
             );
-        } else {
-            assertEq(
-                stableModProxy.stableCollateralPerShare(),
-                1e18,
-                "stableCollateralPerShare should be 1e18 after final withdraw"
-            );
         }
 
         assertEq(stableModProxy.getLockedAmount(traderAccount), 0, "Stable LP not unlocked after execute");
@@ -338,19 +433,19 @@ abstract contract OrderHelpers is Setup {
             "Stable LP not deducted from trader after execute"
         );
         assertEq(
-            stableModProxy.balanceOf(address(delayedOrderProxy)),
+            stableModProxy.balanceOf(address(orderExecutionModProxy)),
             0,
             "Stable LP shouldn't be transferred to delayed order"
         );
         assertEq(
             keeperBalanceBefore + order.keeperFee,
-            WETH.balanceOf(keeperAccount),
+            collateralAsset.balanceOf(keeperAccount),
             "invalid keeper fee transfer after execute"
         );
         assertEq(
-            stableModProxy.balanceOf(address(delayedOrderProxy)),
+            stableModProxy.balanceOf(address(orderExecutionModProxy)),
             0,
-            "not all LP tokens are out of DelayedOrder contract after execute"
+            "not all LP tokens are out of OrderExecution contract after execute"
         );
         assertEq(
             lpTotalSupply,
@@ -374,18 +469,82 @@ abstract contract OrderHelpers is Setup {
     ) public virtual returns (uint256 tokenId) {
         announceOpenLeverage(traderAccount, margin, additionalSize, keeperFeeAmount);
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        int256 fundingRateBefore = vaultProxy.getCurrentFundingRate();
+        int256 fundingRateBefore = controllerModProxy.currentFundingRate();
 
         tokenId = executeOpenLeverage(keeperAccount, traderAccount, oraclePrice);
 
         assertEq(
-            vaultProxy.getCurrentFundingRate(),
+            controllerModProxy.currentFundingRate(),
             fundingRateBefore,
             "Funding rate should not change immediately after opening position"
         );
     }
+
+    function announceAndExecuteLeverageOpenWithLimits(
+        address traderAccount,
+        address keeperAccount,
+        uint256 margin,
+        uint256 additionalSize,
+        uint256 stopLossPrice,
+        uint256 profitTakePrice,
+        uint256 oraclePrice,
+        uint256 keeperFeeAmount
+    ) public virtual returns (uint256 tokenId) {
+        announceOpenLeverageWithLimits(
+            traderAccount,
+            margin,
+            additionalSize,
+            stopLossPrice,
+            profitTakePrice,
+            keeperFeeAmount
+        );
+
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
+
+        int256 fundingRateBefore = controllerModProxy.currentFundingRate();
+
+        tokenId = executeOpenLeverage(keeperAccount, traderAccount, oraclePrice);
+
+        assertEq(
+            controllerModProxy.currentFundingRate(),
+            fundingRateBefore,
+            "Funding rate should not change immediately after opening position"
+        );
+    }
+
+    // function announceAndExecuteLeverageOpenWithLimits(
+    //     address traderAccount,
+    //     address keeperAccount,
+    //     uint256 margin,
+    //     uint256 additionalSize,
+    //     uint256 stopLossPrice,
+    //     uint256 profitTakePrice,
+    //     uint256 oraclePrice,
+    //     uint256 keeperFeeAmount
+    // ) public virtual returns (uint256 tokenId) {
+    //     announceOpenLeverageWithLimits(
+    //         traderAccount,
+    //         margin,
+    //         additionalSize,
+    //         stopLossPrice,
+    //         profitTakePrice,
+    //         keeperFeeAmount
+    //     );
+
+    //     skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
+
+    //     int256 fundingRateBefore = controllerModProxy.currentFundingRate();
+
+    //     tokenId = executeOpenLeverage(keeperAccount, traderAccount, oraclePrice);
+
+    //     assertEq(
+    //         controllerModProxy.currentFundingRate(),
+    //         fundingRateBefore,
+    //         "Funding rate should not change immediately after opening position"
+    //     );
+    // }
 
     function announceAndExecuteLeverageOpenFor(
         address traderAccount,
@@ -393,19 +552,29 @@ abstract contract OrderHelpers is Setup {
         address keeperAccount,
         uint256 margin,
         uint256 additionalSize,
+        uint256 stopLossPrice,
+        uint256 profitTakePrice,
         uint256 oraclePrice,
         uint256 keeperFeeAmount
     ) public virtual returns (uint256 tokenId) {
-        announceOpenLeverageFor(traderAccount, receiver, margin, additionalSize, keeperFeeAmount);
+        announceOpenLeverageFor(
+            traderAccount,
+            receiver,
+            margin,
+            additionalSize,
+            stopLossPrice,
+            profitTakePrice,
+            keeperFeeAmount
+        );
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        int256 fundingRateBefore = vaultProxy.getCurrentFundingRate();
+        int256 fundingRateBefore = controllerModProxy.currentFundingRate();
 
         tokenId = executeOpenLeverage(keeperAccount, receiver, oraclePrice);
 
         assertEq(
-            vaultProxy.getCurrentFundingRate(),
+            controllerModProxy.currentFundingRate(),
             fundingRateBefore,
             "Funding rate should not change immediately after opening position"
         );
@@ -422,14 +591,14 @@ abstract contract OrderHelpers is Setup {
     ) public returns (uint256 tradeFee) {
         announceAdjustLeverage(traderAccount, tokenId, marginAdjustment, additionalSizeAdjustment, keeperFeeAmount);
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        int256 fundingRateBefore = vaultProxy.getCurrentFundingRate();
+        int256 fundingRateBefore = controllerModProxy.currentFundingRate();
 
         tradeFee = executeAdjustLeverage(keeperAccount, traderAccount, oraclePrice);
 
         assertEq(
-            vaultProxy.getCurrentFundingRate(),
+            controllerModProxy.currentFundingRate(),
             fundingRateBefore,
             "Funding rate should not change immediately after adjustment"
         );
@@ -444,15 +613,15 @@ abstract contract OrderHelpers is Setup {
     ) public virtual {
         announceCloseLeverage(traderAccount, tokenId, keeperFeeAmount);
 
-        skip(uint256(vaultProxy.minExecutabilityAge())); // must reach minimum executability time
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge())); // must reach minimum executability time
 
-        int256 fundingRateBefore = vaultProxy.getCurrentFundingRate();
+        int256 fundingRateBefore = controllerModProxy.currentFundingRate();
 
         executeCloseLeverage(keeperAccount, traderAccount, oraclePrice);
 
         assertEq(
             fundingRateBefore,
-            vaultProxy.getCurrentFundingRate(),
+            controllerModProxy.currentFundingRate(),
             "Funding rate should not change immediately after close"
         );
     }
@@ -463,7 +632,52 @@ abstract contract OrderHelpers is Setup {
         uint256 additionalSize,
         uint256 keeperFeeAmount
     ) public virtual {
-        announceOpenLeverageFor(traderAccount, traderAccount, margin, additionalSize, keeperFeeAmount);
+        vm.startPrank(traderAccount);
+
+        keeperFeeAmount = keeperFeeAmount > 0 ? keeperFeeAmount : mockKeeperFee.getKeeperFee();
+
+        // Approve collateralAsset
+        collateralAsset.approve(
+            address(orderAnnouncementModProxy),
+            margin + keeperFeeAmount + FeeManager(address(vaultProxy)).getTradeFee(additionalSize)
+        );
+
+        // Announce the order
+        uint256 maxFillPrice = collateralAssetPrice;
+        orderAnnouncementModProxy.announceLeverageOpen(
+            margin,
+            additionalSize,
+            maxFillPrice + 100, // add some slippage
+            keeperFeeAmount
+        );
+    }
+
+    function announceOpenLeverageWithLimits(
+        address traderAccount,
+        uint256 margin,
+        uint256 additionalSize,
+        uint256 stopLossPrice,
+        uint256 profitTakePrice,
+        uint256 keeperFeeAmount
+    ) internal {
+        vm.startPrank(traderAccount);
+
+        keeperFeeAmount = keeperFeeAmount > 0 ? keeperFeeAmount : mockKeeperFee.getKeeperFee();
+
+        // Approve collateralAsset
+        uint256 tradeFee = (vaultProxy.leverageTradingFee() * additionalSize) / 1e18;
+        collateralAsset.approve(address(orderAnnouncementModProxy), margin + keeperFeeAmount + tradeFee);
+
+        // Announce the order
+        uint256 maxFillPrice = collateralAssetPrice;
+        orderAnnouncementModProxy.announceLeverageOpenWithLimits(
+            margin,
+            additionalSize,
+            maxFillPrice + 100, // add some slippage
+            stopLossPrice,
+            profitTakePrice,
+            keeperFeeAmount
+        );
     }
 
     function announceOpenLeverageFor(
@@ -471,57 +685,72 @@ abstract contract OrderHelpers is Setup {
         address receiver,
         uint256 margin,
         uint256 additionalSize,
+        uint256 stopLossPrice,
+        uint256 profitTakePrice,
         uint256 keeperFeeAmount
     ) public virtual {
-        vm.startPrank(traderAccount);
-        keeperFeeAmount = keeperFeeAmount > 0 ? keeperFeeAmount : mockKeeperFee.getKeeperFee();
-        uint256 traderEthBalance = WETH.balanceOf(traderAccount);
-        uint256 traderNftBalance = leverageModProxy.balanceOf(traderAccount);
+        LeverageOpenData memory data = LeverageOpenData({
+            traderAccount: traderAccount,
+            receiver: receiver,
+            margin: margin,
+            additionalSize: additionalSize,
+            stopLossPrice: stopLossPrice,
+            profitTakePrice: profitTakePrice,
+            keeperFeeAmount: keeperFeeAmount
+        });
+
+        announceOpenLeverageFor(data);
+    }
+
+    function announceOpenLeverageFor(LeverageOpenData memory data) public virtual {
+        vm.startPrank(data.traderAccount);
+        data.keeperFeeAmount = data.keeperFeeAmount > 0 ? data.keeperFeeAmount : mockKeeperFee.getKeeperFee();
+        uint256 traderCollateralAssetBalance = collateralAsset.balanceOf(data.traderAccount);
+        uint256 traderNftBalance = leverageModProxy.balanceOf(data.traderAccount);
+        uint256 feeRecipientBalanceBefore = collateralAsset.balanceOf(feeRecipient);
         uint256 stableCollateralPerShareBefore = stableModProxy.stableCollateralPerShare();
 
-        // Approve WETH
-        uint256 tradeFee = (leverageModProxy.leverageTradingFee() * additionalSize) / 1e18;
-        WETH.approve(address(delayedOrderProxy), margin + keeperFeeAmount + tradeFee);
+        // Approve collateralAsset
+        uint256 tradeFee = (FeeManager(address(vaultProxy)).leverageTradingFee() * data.additionalSize) / 1e18;
+        collateralAsset.approve(address(orderAnnouncementModProxy), data.margin + data.keeperFeeAmount + tradeFee);
 
         // Announce the order
-        (uint256 maxFillPrice, ) = oracleModProxy.getPrice();
-        if (traderAccount == receiver) {
-            delayedOrderProxy.announceLeverageOpen(
-                margin,
-                additionalSize,
-                maxFillPrice + 100, // add some slippage
-                keeperFeeAmount
-            );
-        } else {
-            delayedOrderProxy.announceLeverageOpenFor(
-                margin,
-                additionalSize,
-                maxFillPrice + 100, // add some slippage
-                keeperFeeAmount,
-                receiver
-            );
-        }
-        FlatcoinStructs.Order memory order = delayedOrderProxy.getAnnouncedOrder(receiver);
+        uint256 maxFillPrice = collateralAssetPrice;
+        orderAnnouncementModProxy.announceLeverageOpenFor(
+            data.margin,
+            data.additionalSize,
+            maxFillPrice + 100, // add some slippage
+            data.stopLossPrice,
+            data.profitTakePrice,
+            data.keeperFeeAmount,
+            data.receiver
+        );
+        DelayedOrderStructs.Order memory order = orderAnnouncementModProxy.getAnnouncedOrder(data.receiver);
         {
-            FlatcoinStructs.AnnouncedLeverageOpen memory leverageOpen = abi.decode(
+            DelayedOrderStructs.AnnouncedLeverageOpen memory leverageOpen = abi.decode(
                 order.orderData,
-                (FlatcoinStructs.AnnouncedLeverageOpen)
+                (DelayedOrderStructs.AnnouncedLeverageOpen)
             );
-            assertEq(leverageOpen.margin, margin, "Announce open order margin incorrect");
-            assertEq(leverageOpen.additionalSize, additionalSize, "Announce open order additionalSize incorrect");
+            assertEq(leverageOpen.margin, data.margin, "Announce open order margin incorrect");
+            assertEq(leverageOpen.additionalSize, data.additionalSize, "Announce open order additionalSize incorrect");
             assertEq(leverageOpen.maxFillPrice - 100, maxFillPrice, "Announce open order invalid maximum fill price");
         }
 
-        assertEq(order.keeperFee, keeperFeeAmount, "Incorrect keeper fee in order");
+        assertEq(order.keeperFee, data.keeperFeeAmount, "Incorrect keeper fee in order");
         assertGt(order.executableAtTime, block.timestamp, "Order executability should be after current time");
         assertEq(
-            WETH.balanceOf(traderAccount),
-            traderEthBalance - margin - keeperFeeAmount - tradeFee,
-            "Trader WETH balance incorrect after announcement"
+            collateralAsset.balanceOf(data.traderAccount),
+            traderCollateralAssetBalance - data.margin - data.keeperFeeAmount - tradeFee,
+            "Trader collateralAsset balance incorrect after announcement"
+        );
+        assertEq(
+            collateralAsset.balanceOf(feeRecipient),
+            feeRecipientBalanceBefore,
+            "Fee recipient balance shouldn't change"
         );
         assertEq(
             traderNftBalance,
-            leverageModProxy.balanceOf(traderAccount),
+            leverageModProxy.balanceOf(data.traderAccount),
             "Trader should not have NFT minted after announcement"
         ); // no tokens minted yet
         assertEq(
@@ -530,7 +759,7 @@ abstract contract OrderHelpers is Setup {
             "Stable collateral per share has not remained the same after announce"
         );
         assertGt(order.keeperFee, 0, "Keeper fee should not be 0");
-        assertEq(uint256(order.orderType), uint256(FlatcoinStructs.OrderType.LeverageOpen), "Order doesn't exist");
+        assertEq(uint256(order.orderType), uint256(DelayedOrderStructs.OrderType.LeverageOpen), "Order doesn't exist");
         vm.stopPrank();
     }
 
@@ -547,25 +776,25 @@ abstract contract OrderHelpers is Setup {
         bool sizeIncrease = additionalSizeAdjustment >= 0;
 
         AnnounceAdjustTestData memory testData = AnnounceAdjustTestData({
-            traderEthBalanceBefore: WETH.balanceOf(traderAccount),
+            traderCollateralAssetBalanceBefore: collateralAsset.balanceOf(traderAccount),
             traderNftBalanceBefore: leverageModProxy.balanceOf(traderAccount),
-            delayedOrderBalanceBefore: WETH.balanceOf(address(delayedOrderProxy)),
+            orderExecutionModBalanceBefore: collateralAsset.balanceOf(address(orderExecutionModProxy)),
             stableCollateralPerShareBefore: stableModProxy.stableCollateralPerShare(),
             marginIncrease: marginAdjustment > 0,
             totalEthRequired: uint256(marginAdjustment) +
                 keeperFeeAmount +
-                (leverageModProxy.leverageTradingFee() *
+                (vaultProxy.leverageTradingFee() *
                     (sizeIncrease ? uint256(additionalSizeAdjustment) : uint256(additionalSizeAdjustment * -1))) /
                 1e18 // margin + keeper fee + trade fee
         });
 
         if (testData.marginIncrease) {
-            WETH.approve(address(delayedOrderProxy), testData.totalEthRequired);
+            collateralAsset.approve(address(orderAnnouncementModProxy), testData.totalEthRequired);
         }
 
-        (uint256 modifiedFillPrice, ) = oracleModProxy.getPrice();
+        uint256 modifiedFillPrice = collateralAssetPrice;
         uint256 fillPrice = sizeIncrease ? modifiedFillPrice + 100 : modifiedFillPrice - 100; // not sure why it's needed
-        delayedOrderProxy.announceLeverageAdjust(
+        orderAnnouncementModProxy.announceLeverageAdjust(
             tokenId,
             marginAdjustment,
             additionalSizeAdjustment,
@@ -573,14 +802,19 @@ abstract contract OrderHelpers is Setup {
             keeperFeeAmount
         );
 
-        FlatcoinStructs.Order memory order = delayedOrderProxy.getAnnouncedOrder(traderAccount);
-        FlatcoinStructs.AnnouncedLeverageAdjust memory leverageAdjust = abi.decode(
+        DelayedOrderStructs.Order memory order = orderAnnouncementModProxy.getAnnouncedOrder(traderAccount);
+        DelayedOrderStructs.AnnouncedLeverageAdjust memory leverageAdjust = abi.decode(
             order.orderData,
-            (FlatcoinStructs.AnnouncedLeverageAdjust)
+            (DelayedOrderStructs.AnnouncedLeverageAdjust)
         );
 
         assertEq(leverageAdjust.tokenId, tokenId, "Announce adjust order invalid token ID");
-        assertTrue(leverageModProxy.isLocked(tokenId), "Position token not locked");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ICommonErrors.OrderExists.selector, DelayedOrderStructs.OrderType.LeverageAdjust)
+        );
+        leverageModProxy.safeTransferFrom(traderAccount, makeAddr("dummyAddress"), tokenId);
+
         assertEq(leverageAdjust.marginAdjustment, marginAdjustment, "Announce adjust order invalid margin adjustment");
         assertEq(
             leverageAdjust.additionalSizeAdjustment,
@@ -599,7 +833,11 @@ abstract contract OrderHelpers is Setup {
             "Announce adjust order executability should be after current time"
         );
         assertGt(order.keeperFee, 0, "Keeper fee should not be 0");
-        assertEq(uint256(order.orderType), uint256(FlatcoinStructs.OrderType.LeverageAdjust), "Order doesn't exist");
+        assertEq(
+            uint256(order.orderType),
+            uint256(DelayedOrderStructs.OrderType.LeverageAdjust),
+            "Order doesn't exist"
+        );
 
         assertEq(
             testData.traderNftBalanceBefore,
@@ -614,25 +852,25 @@ abstract contract OrderHelpers is Setup {
 
         if (testData.marginIncrease) {
             assertEq(
-                testData.delayedOrderBalanceBefore + testData.totalEthRequired,
-                WETH.balanceOf(address(delayedOrderProxy)),
-                "DelayedOrder WETH balance incorrect after adjust announcement"
+                testData.orderExecutionModBalanceBefore + testData.totalEthRequired,
+                collateralAsset.balanceOf(address(orderExecutionModProxy)),
+                "OrderExecution collateralAsset balance incorrect after adjust announcement"
             );
             assertEq(
-                testData.traderEthBalanceBefore - testData.totalEthRequired,
-                WETH.balanceOf(traderAccount),
-                "Trader WETH balance incorrect after adjust announcement"
+                testData.traderCollateralAssetBalanceBefore - testData.totalEthRequired,
+                collateralAsset.balanceOf(traderAccount),
+                "Trader collateralAsset balance incorrect after adjust announcement"
             );
         } else {
             assertEq(
-                testData.delayedOrderBalanceBefore,
-                WETH.balanceOf(address(delayedOrderProxy)),
-                "DelayedOrder WETH balance incorrect after adjust announcement"
+                testData.orderExecutionModBalanceBefore,
+                collateralAsset.balanceOf(address(orderExecutionModProxy)),
+                "OrderExecution collateralAsset balance incorrect after adjust announcement"
             );
             assertEq(
-                testData.traderEthBalanceBefore,
-                WETH.balanceOf(traderAccount),
-                "Trader WETH balance incorrect after adjust announcement"
+                testData.traderCollateralAssetBalanceBefore,
+                collateralAsset.balanceOf(traderAccount),
+                "Trader collateralAsset balance incorrect after adjust announcement"
             );
         }
 
@@ -642,31 +880,39 @@ abstract contract OrderHelpers is Setup {
     function announceCloseLeverage(address traderAccount, uint256 tokenId, uint256 keeperFeeAmount) public virtual {
         vm.startPrank(traderAccount);
         keeperFeeAmount = keeperFeeAmount > 0 ? keeperFeeAmount : mockKeeperFee.getKeeperFee();
-        uint256 traderEthBalanceBefore = WETH.balanceOf(traderAccount);
+        uint256 traderCollateralAssetBalanceBefore = collateralAsset.balanceOf(traderAccount);
         uint256 stableCollateralPerShareBefore = stableModProxy.stableCollateralPerShare();
         int256 positionMargin = leverageModProxy.getPositionSummary(tokenId).marginAfterSettlement;
 
-        (uint256 minFillPrice, ) = oracleModProxy.getPrice();
+        uint256 minFillPrice = collateralAssetPrice;
 
         // Announce the order
-        delayedOrderProxy.announceLeverageClose(
+        orderAnnouncementModProxy.announceLeverageClose(
             tokenId,
             minFillPrice - 100, // add some slippage
             keeperFeeAmount
         );
-        FlatcoinStructs.Order memory order = delayedOrderProxy.getAnnouncedOrder(traderAccount);
+        DelayedOrderStructs.Order memory order = orderAnnouncementModProxy.getAnnouncedOrder(traderAccount);
         {
-            FlatcoinStructs.AnnouncedLeverageClose memory leverageClose = abi.decode(
+            DelayedOrderStructs.AnnouncedLeverageClose memory leverageClose = abi.decode(
                 order.orderData,
-                (FlatcoinStructs.AnnouncedLeverageClose)
+                (DelayedOrderStructs.AnnouncedLeverageClose)
             );
 
-            assertTrue(leverageModProxy.isLocked(leverageClose.tokenId), "Position token not locked");
+            vm.expectRevert(
+                abi.encodeWithSelector(ICommonErrors.OrderExists.selector, DelayedOrderStructs.OrderType.LeverageClose)
+            );
+            leverageModProxy.safeTransferFrom(traderAccount, makeAddr("dummyAddress"), tokenId);
+
             assertEq(leverageClose.tokenId, tokenId, "Announce close order invalid token ID");
             assertEq(leverageClose.minFillPrice + 100, minFillPrice, "Announce close order invalid minimum fill price");
         }
 
-        assertEq(WETH.balanceOf(traderAccount), traderEthBalanceBefore, "Trader WETH balance should not have changed");
+        assertEq(
+            collateralAsset.balanceOf(traderAccount),
+            traderCollateralAssetBalanceBefore,
+            "Trader collateralAsset balance should not have changed"
+        );
         assertEq(
             stableCollateralPerShareBefore,
             stableModProxy.stableCollateralPerShare(),
@@ -674,7 +920,7 @@ abstract contract OrderHelpers is Setup {
         );
         assertGt(positionMargin, 0, "Position margin isn't > 0 after announce");
         assertGt(order.keeperFee, 0, "Keeper fee should not be 0");
-        assertEq(uint256(order.orderType), uint256(FlatcoinStructs.OrderType.LeverageClose), "Order doesn't exist");
+        assertEq(uint256(order.orderType), uint256(DelayedOrderStructs.OrderType.LeverageClose), "Order doesn't exist");
         vm.stopPrank();
     }
 
@@ -684,31 +930,33 @@ abstract contract OrderHelpers is Setup {
         uint256 oraclePrice
     ) public virtual returns (uint256 tokenId) {
         uint256 traderNftBalanceBefore = leverageModProxy.balanceOf(traderAccount);
-        uint256 keeperBalanceBefore = WETH.balanceOf(keeperAccount);
+        uint256 keeperBalanceBefore = collateralAsset.balanceOf(keeperAccount);
         uint256 stableCollateralPerShareBefore = uint256(_getStableCollateralPerShare(oraclePrice * 1e10));
 
-        FlatcoinStructs.Order memory order = delayedOrderProxy.getAnnouncedOrder(traderAccount);
-        FlatcoinStructs.AnnouncedLeverageOpen memory leverageOpen = abi.decode(
+        DelayedOrderStructs.Order memory order = orderAnnouncementModProxy.getAnnouncedOrder(traderAccount);
+        DelayedOrderStructs.AnnouncedLeverageOpen memory leverageOpen = abi.decode(
             order.orderData,
-            (FlatcoinStructs.AnnouncedLeverageOpen)
+            (DelayedOrderStructs.AnnouncedLeverageOpen)
         );
 
-        bytes[] memory priceUpdateData = getPriceUpdateData(oraclePrice);
+        bytes[] memory priceUpdateData = getPriceUpdateData(oraclePrice, collateralPythId);
 
         // Execute the user's pending deposit
-        vm.prank(keeperAccount);
+        vm.startPrank(keeperAccount);
 
-        delayedOrderProxy.executeOrder{value: 1}(traderAccount, priceUpdateData);
+        orderExecutionModProxy.executeOrder{value: 1}(traderAccount, priceUpdateData);
         uint256 traderBalance = leverageModProxy.balanceOf(traderAccount);
         tokenId = leverageModProxy.tokenOfOwnerByIndex(traderAccount, traderBalance - 1);
 
         {
-            uint256 tradingFee = (leverageModProxy.leverageTradingFee() * leverageOpen.additionalSize) / 1e18;
+            uint256 tradingFee = (vaultProxy.leverageTradingFee() * leverageOpen.additionalSize) / 1e18;
+            uint256 protocolFee = (vaultProxy.protocolFeePercentage() * tradingFee) / 1e18;
             uint256 totalSupply = stableModProxy.totalSupply();
 
             if (totalSupply > 0) {
                 assertApproxEqAbs(
-                    stableCollateralPerShareBefore + ((tradingFee * (10 ** stableModProxy.decimals())) / totalSupply),
+                    stableCollateralPerShareBefore +
+                        (((tradingFee - protocolFee) * (10 ** stableModProxy.decimals())) / totalSupply),
                     stableModProxy.stableCollateralPerShare(), // there should be some additional value in the stable LPs from earned trading fee
                     1e6, // rounding error only
                     "stableCollateralPerShare incorrect after trade"
@@ -718,9 +966,9 @@ abstract contract OrderHelpers is Setup {
 
         assertEq(traderNftBalanceBefore, leverageModProxy.balanceOf(traderAccount) - 1, "Position NFT not minted");
         {
-            FlatcoinStructs.PositionSummary memory positionSummary = leverageModProxy.getPositionSummary(tokenId);
-            FlatcoinStructs.Position memory position = vaultProxy.getPosition(tokenId);
-            (uint256 price, ) = oracleModProxy.getPrice();
+            LeverageModuleStructs.PositionSummary memory positionSummary = leverageModProxy.getPositionSummary(tokenId);
+            LeverageModuleStructs.Position memory position = vaultProxy.getPosition(tokenId);
+            uint256 price = collateralAssetPrice;
             assertEq(position.averagePrice, price, "Position last price incorrect");
             assertEq(
                 position.averagePrice,
@@ -731,7 +979,7 @@ abstract contract OrderHelpers is Setup {
             assertEq(position.additionalSize, leverageOpen.additionalSize, "Position additional size incorrect");
             assertEq(
                 position.entryCumulativeFunding,
-                vaultProxy.cumulativeFundingRate(),
+                controllerModProxy.cumulativeFundingRate(),
                 "Position entry cumulative funding rate incorrect"
             );
             assertEq(
@@ -743,7 +991,7 @@ abstract contract OrderHelpers is Setup {
             assertEq(uint256(positionSummary.accruedFunding), 0, "Position accrued funding should be 0");
         }
         {
-            FlatcoinStructs.Position memory position = vaultProxy.getPosition(tokenId);
+            LeverageModuleStructs.Position memory position = vaultProxy.getPosition(tokenId);
             assertEq(
                 position.averagePrice,
                 oraclePrice * 1e10, // convert to 18 decimals
@@ -754,7 +1002,7 @@ abstract contract OrderHelpers is Setup {
         }
         assertEq(
             keeperBalanceBefore + order.keeperFee,
-            WETH.balanceOf(keeperAccount),
+            collateralAsset.balanceOf(keeperAccount),
             "Incorrect amount sent to keeper after execution"
         );
         assertGt(order.keeperFee, 0, "keeper fee amount not > 0");
@@ -765,57 +1013,86 @@ abstract contract OrderHelpers is Setup {
         address traderAccount,
         uint256 oraclePrice
     ) public returns (uint256 tradeFee) {
-        FlatcoinStructs.Order memory order = delayedOrderProxy.getAnnouncedOrder(traderAccount);
-        FlatcoinStructs.AnnouncedLeverageAdjust memory leverageAdjust = abi.decode(
+        DelayedOrderStructs.Order memory order = orderAnnouncementModProxy.getAnnouncedOrder(traderAccount);
+        DelayedOrderStructs.AnnouncedLeverageAdjust memory leverageAdjust = abi.decode(
             order.orderData,
-            (FlatcoinStructs.AnnouncedLeverageAdjust)
+            (DelayedOrderStructs.AnnouncedLeverageAdjust)
         );
 
         VerifyLeverageData memory before = VerifyLeverageData({
             nftTotalSupply: leverageModProxy.totalSupply(),
-            traderEthBalance: WETH.balanceOf(traderAccount),
+            traderCollateralAssetBalance: collateralAsset.balanceOf(traderAccount),
+            feeRecipientBalance: collateralAsset.balanceOf(feeRecipient),
             traderNftBalance: leverageModProxy.balanceOf(traderAccount),
-            contractNftBalance: leverageModProxy.balanceOf(address(delayedOrderProxy)),
-            keeperBalance: WETH.balanceOf(keeperAccount),
+            contractNftBalance: leverageModProxy.balanceOf(address(orderExecutionModProxy)),
+            keeperBalance: collateralAsset.balanceOf(keeperAccount),
             stableCollateralPerShare: uint256(_getStableCollateralPerShare(oraclePrice * 1e10)),
             positionSummary: leverageModProxy.getPositionSummary(leverageAdjust.tokenId),
-            oraclePrice: _oraclePrice(),
+            oraclePrice: collateralAssetPrice,
             position: vaultProxy.getPosition(leverageAdjust.tokenId)
         });
 
         vm.startPrank(keeperAccount);
-        delayedOrderProxy.executeOrder{value: 1}(traderAccount, getPriceUpdateData(oraclePrice));
+        orderExecutionModProxy.executeOrder{value: 1}(traderAccount, getPriceUpdateData(oraclePrice));
 
         {
+            uint256 protocolFee = (vaultProxy.protocolFeePercentage() * leverageAdjust.tradeFee) / 1e18;
             uint256 totalSupply = stableModProxy.totalSupply();
 
             assertApproxEqAbs(
                 before.stableCollateralPerShare +
-                    ((leverageAdjust.tradeFee * (10 ** stableModProxy.decimals())) / totalSupply),
+                    (((leverageAdjust.tradeFee - protocolFee) * (10 ** stableModProxy.decimals())) / totalSupply),
                 stableModProxy.stableCollateralPerShare(), // there should be some additional value in the stable LPs from earned trading fee
                 1e6, // rounding error only
                 "stableCollateralPerShare incorrect after execute adjust"
+            );
+            assertEq(
+                collateralAsset.balanceOf(feeRecipient),
+                before.feeRecipientBalance + protocolFee,
+                "Fee recipient balance incorrect"
             );
         }
 
         if (leverageAdjust.marginAdjustment > 0) {
             assertEq(
-                before.traderEthBalance,
-                WETH.balanceOf(traderAccount),
+                before.traderCollateralAssetBalance,
+                collateralAsset.balanceOf(traderAccount),
                 "Trader collateral balance not same when margin adjustment > 0 after execute adjust"
             );
         } else {
             assertEq(
-                before.traderEthBalance + uint256(leverageAdjust.marginAdjustment * -1),
-                WETH.balanceOf(traderAccount),
+                before.traderCollateralAssetBalance + uint256(leverageAdjust.marginAdjustment * -1),
+                collateralAsset.balanceOf(traderAccount),
                 "Incorrect amount sent to trader after execute adjust"
             );
         }
 
-        assertFalse(
-            leverageModProxy.exposed_lockedByModule(leverageAdjust.tokenId, DELAYED_ORDER_KEY),
-            "Position token still locked after execute adjust"
-        );
+        // Test transferability of NFTs after order execution.
+        {
+            address dummy = makeAddr("dummyAddress");
+
+            // If a limit order exists for the `tokenId`, the NFT should not be transferable.
+            if (
+                orderAnnouncementModProxy.getLimitOrder(leverageAdjust.tokenId).orderType ==
+                DelayedOrderStructs.OrderType.None
+            ) {
+                vm.startPrank(traderAccount);
+                leverageModProxy.safeTransferFrom(traderAccount, dummy, leverageAdjust.tokenId);
+
+                vm.startPrank(dummy);
+                leverageModProxy.safeTransferFrom(dummy, traderAccount, leverageAdjust.tokenId);
+
+                // Revert to the original prankster.
+                vm.startPrank(keeperAccount);
+            } else {
+                vm.expectRevert(
+                    abi.encodeWithSelector(ICommonErrors.OrderExists.selector, DelayedOrderStructs.OrderType.LimitClose)
+                );
+
+                leverageModProxy.safeTransferFrom(traderAccount, dummy, leverageAdjust.tokenId);
+            }
+        }
+
         assertEq(
             before.traderNftBalance,
             leverageModProxy.balanceOf(traderAccount),
@@ -828,7 +1105,7 @@ abstract contract OrderHelpers is Setup {
         );
 
         {
-            FlatcoinStructs.Position memory position = vaultProxy.getPosition(leverageAdjust.tokenId);
+            LeverageModuleStructs.Position memory position = vaultProxy.getPosition(leverageAdjust.tokenId);
 
             if (leverageAdjust.additionalSizeAdjustment > 0) {
                 assertEq(
@@ -862,7 +1139,7 @@ abstract contract OrderHelpers is Setup {
 
         assertEq(
             before.keeperBalance + order.keeperFee,
-            WETH.balanceOf(keeperAccount),
+            collateralAsset.balanceOf(keeperAccount),
             "Incorrect amount sent to keeper after adjust"
         );
         assertGt(order.keeperFee, 0, "Keeper fee amount not > 0");
@@ -870,16 +1147,31 @@ abstract contract OrderHelpers is Setup {
         tradeFee = leverageAdjust.tradeFee;
 
         if (leverageAdjust.additionalSizeAdjustment > 0) {
-            int256 calculatedTradeFee = (int256(leverageModProxy.leverageTradingFee()) *
+            int256 calculatedTradeFee = (int256(uint256(vaultProxy.leverageTradingFee())) *
                 leverageAdjust.additionalSizeAdjustment) / 1e18;
             assertEq(int256(tradeFee), calculatedTradeFee, "Trade fee incorrect after positive size adjustment");
+            assertEq(
+                collateralAsset.balanceOf(feeRecipient),
+                before.feeRecipientBalance + (vaultProxy.protocolFeePercentage() * tradeFee) / 1e18,
+                "Fee recipient balance incorrect"
+            );
         } else if (leverageAdjust.additionalSizeAdjustment < 0) {
-            int256 calculatedTradeFee = (int256(leverageModProxy.leverageTradingFee()) *
+            int256 calculatedTradeFee = (int256(uint256(vaultProxy.leverageTradingFee())) *
                 leverageAdjust.additionalSizeAdjustment *
                 -1) / 1e18;
             assertEq(int256(tradeFee), calculatedTradeFee, "Trade fee incorrect after positive size adjustment");
+            assertEq(
+                collateralAsset.balanceOf(feeRecipient),
+                before.feeRecipientBalance + (vaultProxy.protocolFeePercentage() * tradeFee) / 1e18,
+                "Fee recipient balance incorrect"
+            );
         } else {
             assertEq(tradeFee, 0, "Trade fee not 0 after no size adjustment");
+            assertEq(
+                collateralAsset.balanceOf(feeRecipient),
+                before.feeRecipientBalance,
+                "Fee recipient balance incorrect when no size adjustment"
+            );
         }
     }
 
@@ -888,44 +1180,46 @@ abstract contract OrderHelpers is Setup {
         address traderAccount,
         uint256 oraclePrice
     ) public virtual returns (int256 settledMargin) {
-        FlatcoinStructs.Order memory order = delayedOrderProxy.getAnnouncedOrder(traderAccount);
-        FlatcoinStructs.AnnouncedLeverageClose memory leverageClose = abi.decode(
+        DelayedOrderStructs.Order memory order = orderAnnouncementModProxy.getAnnouncedOrder(traderAccount);
+        DelayedOrderStructs.AnnouncedLeverageClose memory leverageClose = abi.decode(
             order.orderData,
-            (FlatcoinStructs.AnnouncedLeverageClose)
+            (DelayedOrderStructs.AnnouncedLeverageClose)
         );
 
         VerifyLeverageData memory before = VerifyLeverageData({
             nftTotalSupply: leverageModProxy.totalSupply(),
-            traderEthBalance: WETH.balanceOf(traderAccount),
+            traderCollateralAssetBalance: collateralAsset.balanceOf(traderAccount),
+            feeRecipientBalance: collateralAsset.balanceOf(feeRecipient),
             traderNftBalance: leverageModProxy.balanceOf(traderAccount),
-            contractNftBalance: leverageModProxy.balanceOf(address(delayedOrderProxy)),
-            keeperBalance: WETH.balanceOf(keeperAccount),
+            contractNftBalance: leverageModProxy.balanceOf(address(orderExecutionModProxy)),
+            keeperBalance: collateralAsset.balanceOf(keeperAccount),
             stableCollateralPerShare: uint256(_getStableCollateralPerShare(oraclePrice * 1e10)),
             positionSummary: leverageModProxy.getPositionSummary(leverageClose.tokenId),
-            oraclePrice: _oraclePrice(),
+            oraclePrice: collateralAssetPrice,
             position: vaultProxy.getPosition(leverageClose.tokenId)
         });
 
-        uint256 tradeFee = (leverageModProxy.leverageTradingFee() * before.position.additionalSize) / 1e18;
+        uint256 tradeFee = (vaultProxy.leverageTradingFee() * before.position.additionalSize) / 1e18;
+        uint256 protocolFee = (vaultProxy.protocolFeePercentage() * tradeFee) / 1e18;
 
         bytes[] memory priceUpdateData = getPriceUpdateData(oraclePrice);
 
         {
             // Execute order doesn't have any return data so we need to try and estimate the settled margin
-            // in the position by the trader's WETH balance before and after the transaction execution
-            uint256 traderEthBalanceBefore = WETH.balanceOf(traderAccount);
+            // in the position by the trader's collateralAsset balance before and after the transaction execution
+            uint256 traderCollateralAssetBalanceBefore = collateralAsset.balanceOf(traderAccount);
             vm.startPrank(keeperAccount);
-            delayedOrderProxy.executeOrder{value: 1}(traderAccount, priceUpdateData);
-            uint256 traderEthBalanceAfter = WETH.balanceOf(traderAccount);
+            orderExecutionModProxy.executeOrder{value: 1}(traderAccount, priceUpdateData);
+            uint256 traderCollateralAssetBalanceAfter = collateralAsset.balanceOf(traderAccount);
             settledMargin =
-                int256(traderEthBalanceAfter) -
-                int256(traderEthBalanceBefore) +
+                int256(traderCollateralAssetBalanceAfter) -
+                int256(traderCollateralAssetBalanceBefore) +
                 int256(order.keeperFee) +
                 int(tradeFee);
         }
 
         {
-            FlatcoinStructs.PositionSummary memory positionSummary = leverageModProxy.getPositionSummary(
+            LeverageModuleStructs.PositionSummary memory positionSummary = leverageModProxy.getPositionSummary(
                 leverageClose.tokenId
             );
             assertEq(positionSummary.profitLoss, 0, "Profit loss isn't 0 after close");
@@ -933,23 +1227,27 @@ abstract contract OrderHelpers is Setup {
             assertEq(positionSummary.marginAfterSettlement, 0, "Margin after settlement loss isn't 0 after close");
         }
 
-        assertApproxEqAbs(
-            before.stableCollateralPerShare +
-                ((tradeFee * (10 ** stableModProxy.decimals())) / stableModProxy.totalSupply()),
-            stableModProxy.stableCollateralPerShare(), // there should be some additional value in the stable LPs from earned trading fee
-            1e6, // rounding error only
-            "stableCollateralPerShare incorrect after close leverage"
-        );
+        // more room for error with lower decimal collateral because stableCollateralPerShare is 18 decimals
+        {
+            uint256 errorMargin = collateralAsset.decimals() <= 8 ? 1e8 : 1e6;
+            assertApproxEqAbs(
+                before.stableCollateralPerShare +
+                    (((tradeFee - protocolFee) * (10 ** stableModProxy.decimals())) / stableModProxy.totalSupply()),
+                stableModProxy.stableCollateralPerShare(), // there should be some additional value in the stable LPs from earned trading fee
+                errorMargin,
+                "stableCollateralPerShare incorrect after close leverage"
+            );
+        }
 
         assertEq(
-            before.traderEthBalance,
-            WETH.balanceOf(traderAccount) -
+            before.traderCollateralAssetBalance,
+            collateralAsset.balanceOf(traderAccount) -
                 (
                     before.positionSummary.marginAfterSettlement > 0
                         ? uint256(before.positionSummary.marginAfterSettlement) - order.keeperFee - tradeFee
                         : 0
                 ),
-            "Trader WETH balance wrong after close"
+            "Trader collateralAsset balance wrong after close"
         );
         assertEq(
             before.traderNftBalance - 1,
@@ -969,8 +1267,8 @@ abstract contract OrderHelpers is Setup {
 
         assertEq(
             before.keeperBalance + order.keeperFee,
-            WETH.balanceOf(keeperAccount),
-            "Keeper WETH balance wrong after close"
+            collateralAsset.balanceOf(keeperAccount),
+            "Keeper collateralAsset balance wrong after close"
         );
         bool positionZero = vaultProxy.getPosition(leverageClose.tokenId).additionalSize > 0 ||
             vaultProxy.getPosition(leverageClose.tokenId).averagePrice > 0 ||
@@ -981,6 +1279,11 @@ abstract contract OrderHelpers is Setup {
         assertEq(positionZero, true, "Position data isn't 0 after close");
         assertEq(before.nftTotalSupply, leverageModProxy.totalSupply() + 1, "ERC721 not burned after close");
         assertGt(order.keeperFee, 0, "keeper fee amount not > 0");
+        assertEq(
+            collateralAsset.balanceOf(feeRecipient),
+            before.feeRecipientBalance + protocolFee,
+            "Fee recipient balance incorrect after close"
+        );
 
         vm.stopPrank();
     }
@@ -994,9 +1297,11 @@ abstract contract OrderHelpers is Setup {
         uint256 oraclePrice,
         uint256 keeperFeeAmount
     ) public virtual returns (uint256 tokenId) {
+        uint256 maxFundingVelocity = controllerModProxy.maxFundingVelocity();
+
         // Disable funding rates.
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0);
+        controllerModProxy.setMaxFundingVelocity(0);
 
         vm.startPrank(traderAccount);
 
@@ -1019,7 +1324,7 @@ abstract contract OrderHelpers is Setup {
 
         // Enable funding rates.
         vm.startPrank(admin);
-        vaultProxy.setMaxFundingVelocity(0.03e18);
+        controllerModProxy.setMaxFundingVelocity(maxFundingVelocity);
 
         vm.stopPrank();
     }
@@ -1030,88 +1335,97 @@ abstract contract OrderHelpers is Setup {
         uint256 tokenId,
         address traderAccount,
         address keeperAccount,
-        uint256 priceLowerThreshold,
-        uint256 priceUpperThreshold,
-        uint256 oraclePrice,
-        uint256 keeperFeeAmount
+        uint256 stopLossPrice,
+        uint256 profitTakePrice,
+        uint256 oraclePrice
     ) public virtual {
-        uint256 keeperWethBalanceBefore = WETH.balanceOf(keeperAccount);
-        uint256 traderWethBalanceBefore = WETH.balanceOf(traderAccount);
+        uint256[] memory balances = new uint256[](3);
+        balances[0] = collateralAsset.balanceOf(keeperAccount);
+        balances[1] = collateralAsset.balanceOf(traderAccount);
+        balances[2] = collateralAsset.balanceOf(feeRecipient);
 
         vm.startPrank(alice);
 
-        limitOrderProxy.announceLimitOrder({
-            tokenId: tokenId,
-            priceLowerThreshold: priceLowerThreshold,
-            priceUpperThreshold: priceUpperThreshold
+        orderAnnouncementModProxy.announceLimitOrder({
+            tokenId_: tokenId,
+            stopLossPrice_: stopLossPrice,
+            profitTakePrice_: profitTakePrice
         });
 
-        FlatcoinStructs.Order memory order = limitOrderProxy.getLimitOrder(tokenId);
-        assertEq(uint256(order.orderType), uint256(FlatcoinStructs.OrderType.LimitClose));
+        DelayedOrderStructs.Order memory order = orderAnnouncementModProxy.getLimitOrder(tokenId);
+        assertEq(uint256(order.orderType), uint256(DelayedOrderStructs.OrderType.LimitClose));
         assertEq(order.keeperFee, 0, "Limit order keeper fee not 0"); // limit orders have no keeper fee
-        assertGt(keeperFeeAmount, 0, "keeper fee amount not > 0");
-        assertEq(order.executableAtTime, block.timestamp + vaultProxy.minExecutabilityAge());
+        assertEq(order.executableAtTime, block.timestamp + orderAnnouncementModProxy.minExecutabilityAge());
         {
-            FlatcoinStructs.LimitClose memory limitClose = abi.decode(order.orderData, (FlatcoinStructs.LimitClose));
-            assertEq(limitClose.priceLowerThreshold, priceLowerThreshold);
-            assertEq(limitClose.priceUpperThreshold, priceUpperThreshold);
+            DelayedOrderStructs.AnnouncedLimitClose memory limitClose = abi.decode(
+                order.orderData,
+                (DelayedOrderStructs.AnnouncedLimitClose)
+            );
+            assertEq(limitClose.stopLossPrice, stopLossPrice);
+            assertEq(limitClose.profitTakePrice, profitTakePrice);
             assertEq(limitClose.tokenId, tokenId);
         }
 
-        setWethPrice(oraclePrice);
+        setCollateralPrice(oraclePrice);
+        uint256 keeperFee = mockKeeperFee.getKeeperFee();
+
         int256 settledMargin = leverageModProxy.getPositionSummary(tokenId).marginAfterSettlement;
         uint256 tradeFee;
         {
-            FlatcoinStructs.Position memory position = vaultProxy.getPosition(tokenId);
-            tradeFee = (leverageModProxy.leverageTradingFee() * position.additionalSize) / 1e18;
+            LeverageModuleStructs.Position memory position = vaultProxy.getPosition(tokenId);
+            tradeFee = (vaultProxy.leverageTradingFee() * position.additionalSize) / 1e18;
         }
 
         assertGt(settledMargin, 0, "Settled margin should be > 0 before limit close execution");
 
-        skip(uint256(vaultProxy.minExecutabilityAge()));
+        skip(uint256(orderAnnouncementModProxy.minExecutabilityAge()));
 
         bytes[] memory priceUpdateData = getPriceUpdateData(oraclePrice);
 
         vm.startPrank(keeper);
 
-        limitOrderProxy.executeLimitOrder{value: 1}(tokenId, priceUpdateData);
+        orderExecutionModProxy.executeLimitOrder{value: 1}(tokenId, priceUpdateData);
 
         assertEq(
-            keeperWethBalanceBefore + keeperFeeAmount,
-            WETH.balanceOf(keeperAccount),
+            balances[0] + keeperFee,
+            collateralAsset.balanceOf(keeperAccount),
             "Incorrect amount sent to keeper after limit close execution"
         );
         assertGt(
-            WETH.balanceOf(traderAccount),
-            traderWethBalanceBefore,
-            "Trader WETH balance should have increased after limit close execution"
+            collateralAsset.balanceOf(traderAccount),
+            balances[1],
+            "Trader collateralAsset balance should have increased after limit close execution"
         );
-
         assertEq(
-            traderWethBalanceBefore + uint256(settledMargin) - tradeFee - keeperFeeAmount,
-            WETH.balanceOf(traderAccount),
-            "Trader WETH balance incorrect after limit close execution"
+            balances[1] + uint256(settledMargin) - tradeFee - keeperFee,
+            collateralAsset.balanceOf(traderAccount),
+            "Trader collateralAsset balance incorrect after limit close execution"
+        );
+        assertEq(
+            collateralAsset.balanceOf(feeRecipient),
+            balances[2] + (vaultProxy.protocolFeePercentage() * tradeFee) / 1e18,
+            "Fee recipient balance incorrect after limit close execution"
         );
 
-        order = limitOrderProxy.getLimitOrder(tokenId);
+        order = orderAnnouncementModProxy.getLimitOrder(tokenId);
 
         assertEq(uint256(order.orderType), 0);
         assertEq(order.keeperFee, 0);
         assertEq(order.executableAtTime, 0);
     }
 
-    function _getStableCollateralPerShare(uint256 price) internal view returns (uint256 collateralPerShare) {
+    /// @dev `dollarAmount` is with 18 decimals. So $10 is equal to 10e18.
+    /// @param toAsset Either market or collateral asset.
+    /// @return The amount of `toAsset` that can be bought with `dollarAmount`.
+    function getQuoteFromDollarAmount(uint256 dollarAmount, MockERC20 toAsset) public view returns (uint256) {
+        return (dollarAmount * (10 ** toAsset.decimals())) / collateralAssetPrice;
+    }
+
+    function _getStableCollateralPerShare(uint256 price) private view returns (uint256 collateralPerShare) {
         uint256 totalSupply = stableModProxy.totalSupply();
 
         if (totalSupply > 0) {
-            FlatcoinStructs.VaultSummary memory vaultSummary = vaultProxy.getVaultSummary();
-
-            FlatcoinStructs.MarketSummary memory marketSummary = PerpMath._getMarketSummaryLongs(
-                vaultSummary,
-                vaultProxy.maxFundingVelocity(),
-                vaultProxy.maxVelocitySkew(),
-                price
-            );
+            LeverageModuleStructs.MarketSummary memory marketSummary = viewer.getMarketSummary(price);
 
             int256 netTotal = marketSummary.profitLossTotalByLongs + marketSummary.accruedFundingTotalByLongs;
 
@@ -1130,11 +1444,7 @@ abstract contract OrderHelpers is Setup {
             collateralPerShare = (stableCollateralBalance * (10 ** stableModProxy.decimals())) / totalSupply;
         } else {
             // no shares have been minted yet
-            collateralPerShare = 1e18;
+            collateralPerShare = 1e36 / price;
         }
-    }
-
-    function _oraclePrice() private view returns (uint256 price) {
-        (price, ) = oracleModProxy.getPrice();
     }
 }

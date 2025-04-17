@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {IChainlinkAggregatorV3} from "../interfaces/IChainlinkAggregatorV3.sol";
 
@@ -15,32 +15,32 @@ contract ETHCrossAggregator is IChainlinkAggregatorV3 {
     uint256 public tokenToEthPriceMaxAge;
 
     /// @dev Mind the decimals of aggregator prices, eg ETH/USD has 8 decimals while rETH/ETH has 18 decimals.
-    /// @param _token Token to get USD price for, eg rETH.
-    /// @param _tokenToEthAggregator Chainlink aggregator for token to ETH price, eg rETH/ETH.
-    /// @param _ethToUsdAggregator Chainlink aggregator for ETH to USD price.
-    /// @param _tokenToEthPriceMaxAge Maximum age of token to ETH price in seconds, eg 25 hours.
+    /// @param token_ Token to get USD price for, eg rETH.
+    /// @param tokenToEthAggregator_ Chainlink aggregator for token to ETH price, eg rETH/ETH.
+    /// @param ethToUsdAggregator_ Chainlink aggregator for ETH to USD price.
+    /// @param tokenToEthPriceMaxAge_ Maximum age of token to ETH price in seconds, eg 25 hours.
     constructor(
-        address _token,
-        IChainlinkAggregatorV3 _tokenToEthAggregator,
-        IChainlinkAggregatorV3 _ethToUsdAggregator,
-        uint256 _tokenToEthPriceMaxAge
+        address token_,
+        IChainlinkAggregatorV3 tokenToEthAggregator_,
+        IChainlinkAggregatorV3 ethToUsdAggregator_,
+        uint256 tokenToEthPriceMaxAge_
     ) {
-        token = _token;
-        tokenToEthAggregator = _tokenToEthAggregator;
-        ethToUsdAggregator = _ethToUsdAggregator;
-        tokenToEthPriceMaxAge = _tokenToEthPriceMaxAge;
+        token = token_;
+        tokenToEthAggregator = tokenToEthAggregator_;
+        ethToUsdAggregator = ethToUsdAggregator_;
+        tokenToEthPriceMaxAge = tokenToEthPriceMaxAge_;
     }
 
-    /// @return roundId The round ID.
-    /// @return answer The price in USD (price decimal: 8)
-    /// @return startedAt Timestamp of when the round started.
-    /// @return updatedAt Timestamp of when the round was updated.
-    /// @return answeredInRound The round ID of the round in which the answer was computed.
+    /// @return roundId_ The round ID.
+    /// @return answer_ The price in USD (price decimal: 8)
+    /// @return startedAt_ Timestamp of when the round started.
+    /// @return updatedAt_ Timestamp of when the round was updated.
+    /// @return answeredInRound_ The round ID of the round in which the answer was computed.
     function latestRoundData()
         external
         view
         override
-        returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
+        returns (uint80 roundId_, int256 answer_, uint256 startedAt_, uint256 updatedAt_, uint80 answeredInRound_)
     {
         (, int256 tokenToEthPrice, , uint256 tokenToEthUpdatedAt, ) = tokenToEthAggregator.latestRoundData();
         (, int256 ethToUsdPrice, , uint256 ethToUsdUpdatedAt, ) = ethToUsdAggregator.latestRoundData();
@@ -52,12 +52,12 @@ contract ETHCrossAggregator is IChainlinkAggregatorV3 {
         // Given that ETH/USD heartbeat is shorter, in most of the cases ethToUsdUpdatedAt will be returned (latest).
         // If not for the revert above, we would not see if received rETH/ETH price is stale.
         // If updatedAt appears to be stale, it will revert down the stream in OracleModule
-        updatedAt = tokenToEthUpdatedAt < ethToUsdUpdatedAt ? ethToUsdUpdatedAt : tokenToEthUpdatedAt;
+        updatedAt_ = tokenToEthUpdatedAt < ethToUsdUpdatedAt ? ethToUsdUpdatedAt : tokenToEthUpdatedAt;
 
         // tokenToEthPrice has 18 decimals, ethToUsdPrice has 8 decimals.
-        answer = (tokenToEthPrice * ethToUsdPrice) / 1e18;
+        answer_ = (tokenToEthPrice * ethToUsdPrice) / 1e18;
 
-        return (roundId, answer, startedAt, updatedAt, answeredInRound);
+        return (roundId_, answer_, startedAt_, updatedAt_, answeredInRound_);
     }
 
     function decimals() external pure override returns (uint8 decimals_) {

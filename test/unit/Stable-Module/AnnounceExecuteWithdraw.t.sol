@@ -1,20 +1,18 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
-import {Setup} from "../../helpers/Setup.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
-import {FlatcoinStructs} from "src/libraries/FlatcoinStructs.sol";
+import "../../helpers/OrderHelpers.sol";
 
 import "forge-std/console2.sol";
 
-contract AnnounceExecuteWithdrawTest is Setup, OrderHelpers {
+contract AnnounceExecuteWithdrawTest is OrderHelpers {
     function test_deposits_and_withdrawal() public {
         vm.startPrank(admin);
-        stableModProxy.setStableWithdrawFee(0);
-        leverageModProxy.setLeverageTradingFee(0);
+        vaultProxy.setStableWithdrawFee(0);
+        vaultProxy.setLeverageTradingFee(0);
 
         uint256 keeperFee = mockKeeperFee.getKeeperFee();
-        uint256 aliceWethBalanceBefore = WETH.balanceOf(alice);
+        uint256 aliceCollateralBalanceBefore = collateralAsset.balanceOf(alice);
 
         // First deposit mint doesn't use offchain oracle price
         announceAndExecuteDeposit({
@@ -42,11 +40,15 @@ contract AnnounceExecuteWithdrawTest is Setup, OrderHelpers {
             keeperFeeAmount: keeperFee
         });
 
-        // Withraw 25%
+        uint256 totalLPMinted = stableModProxy.balanceOf(alice);
+        uint256 withdrawalAmount1 = totalLPMinted / 4;
+        uint256 withdrawalAmount2 = totalLPMinted - withdrawalAmount1;
+
+        // Withdraw 25%
         announceAndExecuteWithdraw({
             traderAccount: alice,
             keeperAccount: keeper,
-            withdrawAmount: 100e18,
+            withdrawAmount: withdrawalAmount1,
             oraclePrice: 2000e8,
             keeperFeeAmount: keeperFee
         });
@@ -55,14 +57,22 @@ contract AnnounceExecuteWithdrawTest is Setup, OrderHelpers {
         announceAndExecuteWithdraw({
             traderAccount: alice,
             keeperAccount: keeper,
-            withdrawAmount: 300e18,
+            withdrawAmount: withdrawalAmount2,
             oraclePrice: 2000e8,
             keeperFeeAmount: keeperFee
         });
 
-        assertEq(aliceWethBalanceBefore, WETH.balanceOf(alice) + (keeperFee * 5), "Alice didn't get all her WETH back");
-        assertEq(WETH.balanceOf(address(delayedOrderProxy)), 0, "Delayed order should have 0 WETH");
-        assertEq(WETH.balanceOf(address(vaultProxy)), 0, "Vault should have 0 WETH");
+        assertEq(
+            aliceCollateralBalanceBefore,
+            collateralAsset.balanceOf(alice) + (keeperFee * 5),
+            "Alice didn't get all her collateralAsset back"
+        );
+        assertEq(
+            collateralAsset.balanceOf(address(orderExecutionModProxy)),
+            0,
+            "Delayed order should have 0 collateralAsset"
+        );
+        assertEq(collateralAsset.balanceOf(address(vaultProxy)), 0, "Vault should have 0 collateralAsset");
         assertEq(stableModProxy.totalSupply(), 0, "Stable LP should have 0 supply");
     }
 }

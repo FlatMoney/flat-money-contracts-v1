@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {Setup} from "../../helpers/Setup.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
+import "../../helpers/OrderHelpers.sol";
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
-import {FlatcoinStructs} from "../../../src/libraries/FlatcoinStructs.sol";
-import {FlatcoinErrors} from "../../../src/libraries/FlatcoinErrors.sol";
 
 import "forge-std/console2.sol";
 
-contract LeverageTest is Setup, OrderHelpers, ExpectRevert {
+contract LeverageTest is OrderHelpers, ExpectRevert {
     struct PositionState {
-        FlatcoinStructs.Position position;
-        FlatcoinStructs.PositionSummary positionSummary;
+        LeverageModuleStructs.Position position;
+        LeverageModuleStructs.PositionSummary positionSummary;
     }
 
     function test_leverage_open() public {
@@ -28,7 +26,7 @@ contract LeverageTest is Setup, OrderHelpers, ExpectRevert {
     }
 
     function test_revert_leverage_open_but_position_creates_bad_debt() public {
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
 
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -44,9 +42,9 @@ contract LeverageTest is Setup, OrderHelpers, ExpectRevert {
         // Immediately liquidatable due to liquidation buffer provided being less than required
         // for the position size.
         leverageModProxy.setLeverageCriteria({
-            _marginMin: 0.05e18,
-            _leverageMin: 1.5e18,
-            _leverageMax: type(uint256).max
+            marginMin_: 0.05e18,
+            leverageMin_: 1.5e18,
+            leverageMax_: type(uint256).max
         });
 
         // Announce a position which is immediately liquidatable. This should revert.
@@ -59,7 +57,9 @@ contract LeverageTest is Setup, OrderHelpers, ExpectRevert {
     }
 
     function test_leverage_global_pnl_accounting_after_leverage_order_executions() public {
-        setWethPrice(1000e8);
+        setCollateralPrice(1000e8);
+
+        uint256 collateralPerShareBefore = stableModProxy.stableCollateralPerShare();
 
         // First deposit mint doesn't use offchain oracle price
         announceAndExecuteDeposit({
@@ -88,7 +88,7 @@ contract LeverageTest is Setup, OrderHelpers, ExpectRevert {
             keeperFeeAmount: 0
         });
 
-        setWethPrice(750e8);
+        setCollateralPrice(750e8);
 
         // triggers updateGlobalPositionData
         uint256 tokenIdBob2 = announceAndExecuteLeverageOpen({
@@ -100,7 +100,7 @@ contract LeverageTest is Setup, OrderHelpers, ExpectRevert {
             keeperFeeAmount: 0
         });
 
-        setWethPrice(500e8);
+        setCollateralPrice(500e8);
 
         // triggers updateGlobalPositionData
         announceAndExecuteLeverageOpen({
@@ -135,7 +135,7 @@ contract LeverageTest is Setup, OrderHelpers, ExpectRevert {
         assertEq(positionStateBob2.positionSummary.profitLoss, int256(-0.025e18), "Bob PnL 2 incorrect");
         assertEq(int256(stableCollateralTotal), int256(1000e18), "Stable collateral total shouldn't change");
         assertApproxEqAbs(
-            leverageModProxy.getMarketSummary().profitLossTotalByLongs,
+            viewer.getMarketSummary().profitLossTotalByLongs,
             positionStateAlice.positionSummary.profitLoss +
                 positionStateBob.positionSummary.profitLoss +
                 positionStateBob2.positionSummary.profitLoss,
@@ -144,7 +144,7 @@ contract LeverageTest is Setup, OrderHelpers, ExpectRevert {
         );
         assertApproxEqAbs(
             int256(stableCollateralPerShare),
-            int256(1e18) -
+            int256(collateralPerShareBefore) -
                 (((positionStateAlice.positionSummary.profitLoss +
                     positionStateBob.positionSummary.profitLoss +
                     positionStateBob2.positionSummary.profitLoss) * 1e18) / int256(stableModProxy.totalSupply())),
@@ -153,9 +153,9 @@ contract LeverageTest is Setup, OrderHelpers, ExpectRevert {
         );
     }
 
-    // TODO: Consider moving helper functions to a separate contract
-
     function _leverageOpen() internal {
+        setCollateralPrice(2000e8);
+
         // First deposit mint doesn't use offchain oracle price
         announceAndExecuteDeposit({
             traderAccount: alice,
@@ -176,7 +176,7 @@ contract LeverageTest is Setup, OrderHelpers, ExpectRevert {
     }
 
     function _leverageClose() internal {
-        setWethPrice(2000e8);
+        setCollateralPrice(2000e8);
         skip(120);
 
         // First deposit mint doesn't use offchain oracle price

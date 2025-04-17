@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.20;
+pragma solidity 0.8.28;
 
 import {ExpectRevert} from "../../helpers/ExpectRevert.sol";
-import {OrderHelpers} from "../../helpers/OrderHelpers.sol";
-import {FlatcoinErrors} from "../../../src/libraries/FlatcoinErrors.sol";
-import {FlatcoinStructs} from "../../../src/libraries/FlatcoinStructs.sol";
+
+import "../../helpers/OrderHelpers.sol";
 
 contract AssertLeverageModuleRevertsTest is OrderHelpers, ExpectRevert {
     function test_revert_when_caller_not_owner() public {
@@ -12,86 +11,43 @@ contract AssertLeverageModuleRevertsTest is OrderHelpers, ExpectRevert {
 
         _expectRevertWithCustomError({
             target: address(leverageModProxy),
-            callData: abi.encodeWithSelector(leverageModProxy.setLeverageTradingFee.selector, 0),
-            expectedErrorSignature: "OnlyOwner(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyOwner.selector, alice)
-        });
-
-        _expectRevertWithCustomError({
-            target: address(leverageModProxy),
             callData: abi.encodeWithSelector(leverageModProxy.setLeverageCriteria.selector, 0, 0, 0),
             expectedErrorSignature: "OnlyOwner(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyOwner.selector, alice)
+            errorData: abi.encodeWithSelector(ModuleUpgradeable.OnlyOwner.selector, alice)
         });
     }
 
     function test_revert_when_caller_not_authorized_module() public {
         vm.startPrank(alice);
 
-        FlatcoinStructs.Order memory order;
-
-        bytes32 moduleKey = delayedOrderProxy.MODULE_KEY();
+        DelayedOrderStructs.Order memory order;
 
         _expectRevertWithCustomError({
             target: address(leverageModProxy),
-            callData: abi.encodeWithSelector(leverageModProxy.executeOpen.selector, alice, bob, order),
+            callData: abi.encodeWithSelector(leverageModProxy.executeOpen.selector, alice, order),
             expectedErrorSignature: "OnlyAuthorizedModule(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyAuthorizedModule.selector, alice)
+            errorData: abi.encodeWithSelector(ICommonErrors.OnlyAuthorizedModule.selector, alice)
         });
 
         _expectRevertWithCustomError({
             target: address(leverageModProxy),
-            callData: abi.encodeWithSelector(leverageModProxy.executeAdjust.selector, alice, bob, order),
+            callData: abi.encodeWithSelector(leverageModProxy.executeAdjust.selector, order),
             expectedErrorSignature: "OnlyAuthorizedModule(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyAuthorizedModule.selector, alice)
+            errorData: abi.encodeWithSelector(ICommonErrors.OnlyAuthorizedModule.selector, alice)
         });
 
         _expectRevertWithCustomError({
             target: address(leverageModProxy),
-            callData: abi.encodeWithSelector(leverageModProxy.executeClose.selector, alice, bob, order),
+            callData: abi.encodeWithSelector(leverageModProxy.executeClose.selector, order),
             expectedErrorSignature: "OnlyAuthorizedModule(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyAuthorizedModule.selector, alice)
+            errorData: abi.encodeWithSelector(ICommonErrors.OnlyAuthorizedModule.selector, alice)
         });
 
         _expectRevertWithCustomError({
             target: address(leverageModProxy),
-            callData: abi.encodeWithSelector(leverageModProxy.burn.selector, 0, moduleKey),
+            callData: abi.encodeWithSelector(leverageModProxy.burn.selector, 0),
             expectedErrorSignature: "OnlyAuthorizedModule(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyAuthorizedModule.selector, alice)
-        });
-
-        _expectRevertWithCustomError({
-            target: address(leverageModProxy),
-            callData: abi.encodeWithSelector(leverageModProxy.lock.selector, 0, moduleKey),
-            expectedErrorSignature: "OnlyAuthorizedModule(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyAuthorizedModule.selector, alice)
-        });
-
-        _expectRevertWithCustomError({
-            target: address(leverageModProxy),
-            callData: abi.encodeWithSelector(leverageModProxy.unlock.selector, 0, moduleKey),
-            expectedErrorSignature: "OnlyAuthorizedModule(address)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.OnlyAuthorizedModule.selector, alice)
-        });
-    }
-
-    function test_revert_when_wrong_leverage_trading_fee_value() public {
-        vm.startPrank(admin);
-
-        // 100% fee
-        _expectRevertWithCustomError({
-            target: address(leverageModProxy),
-            callData: abi.encodeWithSelector(leverageModProxy.setLeverageTradingFee.selector, 1e18),
-            expectedErrorSignature: "InvalidFee(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.InvalidFee.selector, 1e18)
-        });
-
-        // 10% fee
-        _expectRevertWithCustomError({
-            target: address(leverageModProxy),
-            callData: abi.encodeWithSelector(leverageModProxy.setLeverageTradingFee.selector, 0.1e18),
-            expectedErrorSignature: "InvalidFee(uint256)",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.InvalidFee.selector, 0.1e18)
+            errorData: abi.encodeWithSelector(ICommonErrors.OnlyAuthorizedModule.selector, alice)
         });
     }
 
@@ -102,14 +58,47 @@ contract AssertLeverageModuleRevertsTest is OrderHelpers, ExpectRevert {
             target: address(leverageModProxy),
             callData: abi.encodeWithSelector(leverageModProxy.setLeverageCriteria.selector, 0, 1e18, 0),
             expectedErrorSignature: "InvalidLeverageCriteria()",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.InvalidLeverageCriteria.selector)
+            errorData: abi.encodeWithSelector(LeverageModule.InvalidLeverageCriteria.selector)
         });
 
         _expectRevertWithCustomError({
             target: address(leverageModProxy),
             callData: abi.encodeWithSelector(leverageModProxy.setLeverageCriteria.selector, 0, 1e18, 1e18),
             expectedErrorSignature: "InvalidLeverageCriteria()",
-            errorData: abi.encodeWithSelector(FlatcoinErrors.InvalidLeverageCriteria.selector)
+            errorData: abi.encodeWithSelector(LeverageModule.InvalidLeverageCriteria.selector)
+        });
+    }
+
+    function test_revert_leverage_open_for_zero_address() public {
+        vm.startPrank(admin);
+
+        // Add alice as an authorized caller.
+        // This allows them to make certain announcements on behalf of other addresses.
+        orderAnnouncementModProxy.addAuthorizedCaller(alice);
+
+        // Deposit some collateral first.
+        announceAndExecuteDeposit({
+            traderAccount: alice,
+            keeperAccount: keeper,
+            depositAmount: 100e18,
+            oraclePrice: 1000e8,
+            keeperFeeAmount: 0
+        });
+
+        _expectRevertWithCustomError({
+            target: address(this),
+            callData: abi.encodeWithSignature(
+                "announceOpenLeverageFor(address,address,uint256,uint256,uint256,uint256,uint256)",
+                alice,
+                address(0),
+                100e18,
+                100e18,
+                0,
+                type(uint256).max,
+                0
+            ),
+            expectedErrorSignature: "ZeroAddress(string)",
+            errorData: abi.encodeWithSelector(ICommonErrors.ZeroAddress.selector, "receiver")
         });
     }
 }
